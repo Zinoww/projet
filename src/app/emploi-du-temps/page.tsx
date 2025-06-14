@@ -19,12 +19,6 @@ import 'react-big-calendar/lib/css/react-big-calendar.css'
 moment.locale('fr')
 moment.updateLocale('fr', { week: { dow: 0 } }) // dimanche début
 
-const localizer = momentLocalizer(moment)
-const DnDCalendar = withDragAndDrop<Emploi>(Calendar)
-const [events, setEvents] = useState<Event[]>([])
-const [emploisDuTemps, setEmploisDuTemps] = useState<Emploi[]>([])
-const [message, setMessage] = useState<string>("")
-const [loading, setLoading] = useState<boolean>(false)
 
 
 type Emploi = {
@@ -38,6 +32,8 @@ type Emploi = {
 }
 
 export default function EmploiDuTempsPage() {
+
+    
     const [emploisDuTemps, setEmploisDuTemps] = useState<any[]>([])
     const [generaEvents, setGeneratedEvents] = useState<any[]>([])
     const [events, setEvents] = useState<Emploi[]>([])
@@ -230,7 +226,7 @@ export default function EmploiDuTempsPage() {
 
         setLoading(false)
     }
-}
+
 const generateEmplois = async (): Promise<{ success: boolean }> => {
     // Appelle une fonction Supabase, API ou fait une génération locale ici
     const { error } = await supabase.rpc('generer_emplois_du_temps') // Exemple de fonction Supabase
@@ -383,8 +379,8 @@ return (
             <p className="text-sm text-gray-700 mb-4">{message}</p>
 
             <div id="print-zone" className="bg-white p-4">
-                <DnDCalendar
-                    localizer={localizer}
+                <Calendar
+                    localizer={momentLocalizer(moment)}
                     culture="fr"
                     events={events}
                     startAccessor={(event) => event.start}
@@ -400,7 +396,7 @@ return (
                     timeslots={1}
                     min={new Date(1970, 1, 1, 8, 0)}
                     max={new Date(1970, 1, 1, 17, 0)}
-                    onEventDrop={moveEvent}
+                    onDrillDown={moveEvent}
                     eventPropGetter={(event) => {
                         const e = event as Emploi
                         return {

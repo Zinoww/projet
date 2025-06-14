@@ -21,28 +21,31 @@ export default function CoursPage() {
   const [form, setForm] = useState({ nom: '', enseignant_id: '' })
   const [enseignants, setEnseignants] = useState<Enseignant[]>([])
 
-  useEffect(() => {
-    const fetchData = async () => {
-      const { data: enseignantsData } = await supabase.from('enseignants').select('id, nom')
-      const { data: coursData } = await supabase
-        .from('cours')
-        .select('id, nom, enseignant_id, enseignant (nom)')
+useEffect(() => {
+  const fetchData = async () => {
+    const { data: enseignantsData } = await supabase
+      .from('enseignants')
+      .select('id, nom')
 
-      if (enseignantsData) setEnseignants(enseignantsData)
+    const { data: coursData } = await supabase
+      .from('cours')
+      .select('id, nom, enseignant_id, enseignants (nom)')  // Jointure ici ✅
 
-      if (coursData) {
-        const parsed = coursData.map((c: any) => ({
-          id: c.id,
-          nom: c.nom,
-          enseignant_id: c.enseignant_id,
-          enseignant_nom: c.enseignant?.nom || '',
-        }))
-        setCours(parsed)
-      }
+    if (enseignantsData) setEnseignants(enseignantsData)
+
+    if (coursData) {
+      const parsed = coursData.map((c: any) => ({
+        id: c.id,
+        nom: c.nom,
+        enseignant_id: c.enseignant_id,
+        enseignant_nom: c.enseignants?.nom || '',  // maintenant ça fonctionne ✅
+      }))
+      setCours(parsed)
     }
+  }
 
-    fetchData()
-  }, [])
+  fetchData()
+}, [])
 
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -87,51 +90,70 @@ export default function CoursPage() {
     }
   }
 
-  // Import Excel (.xlsx)
-  const handleImportCours = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+// ...dans handleImportCours...
+//pour l'instant ok, mais à voir la contrainte unique du champs email dans la table enseignants
+//soit obliger le user à créer d'abord les enseignants pour leur assigner ainsi l'email valide, soit laisser l'importer avec un email vide et donc sans contrainte unique
+const handleImportCours = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0]
+  if (!file) return
 
-    const reader = new FileReader()
-    reader.onload = async (evt) => {
-      const data = new Uint8Array(evt.target?.result as ArrayBuffer)
-      const workbook = XLSX.read(data, { type: 'array' })
-      const sheet = workbook.Sheets[workbook.SheetNames[0]]
-      const jsonData = XLSX.utils.sheet_to_json(sheet)
+  const reader = new FileReader()
+  reader.onload = async (evt) => {
+    const data = new Uint8Array(evt.target?.result as ArrayBuffer)
+    const workbook = XLSX.read(data, { type: 'array' })
+    const sheet = workbook.Sheets[workbook.SheetNames[0]]
 
-      // Charger les enseignants depuis Supabase
-      const { data: enseignants, error: errEns } = await supabase.from('enseignants').select('id, nom')
-      if (errEns || !enseignants) {
-        alert("Erreur lors du chargement des enseignants.")
-        return
+    // Charger les enseignants depuis Supabase
+    const { data: enseignants, error: errEns } = await supabase
+      .from('enseignants')
+      .select('id, nom')
+
+    if (errEns || !enseignants) {
+      alert("Erreur lors du chargement des enseignants.")
+      return
+    }
+
+    // Utilitaire pour trouver la clé correspondante
+    const findMatchingKey = (item: Record<string, any>, possibleKeys: string[]) => {
+      return Object.keys(item).find(k =>
+        possibleKeys.some(possible => k.includes(possible))
+      )
+    }
+
+    // Nettoyage et parsing
+    const jsonData = XLSX.utils.sheet_to_json(sheet, { defval: "" }) as any[]
+    const coursToInsert: { nom: string; enseignant_id: string }[] = []
+    const coursIgnorés: any[] = []
+
+    for (const rawItem of jsonData) {
+      const item = Object.fromEntries(
+        Object.entries(rawItem).map(([k, v]) => [
+          k.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim(),
+          v
+        ])
+      )
+
+      const nomKey = findMatchingKey(item, ['cours', 'nom du cours', 'nom'])
+      const enseignantKey = findMatchingKey(item, ['enseignant', 'enseignants', 'nom de lenseignant', 'nom enseignant', 'prof', 'professeur'])
+
+      const nom = nomKey ? item[nomKey] : null
+      const enseignantNom = enseignantKey ? item[enseignantKey] : null
+
+      if (!nom || !enseignantNom) continue
+
+      const enseignant = enseignants.find(e =>
+        e.nom.toLowerCase().trim() === String(enseignantNom).toLowerCase().trim()
+      )
+
+      if (enseignant) {
+        coursToInsert.push({ nom: String(nom), enseignant_id: enseignant.id })
+      } else {
+        coursIgnorés.push(item)
       }
+    }
 
-      const coursToInsert: { nom: string; enseignant_id: string }[] = []
-      const coursIgnorés: any[] = []
-
-      for (const item of jsonData as any[]) {
-        const nom = item.nom || item.Nom
-        const enseignantNom = item.enseignant || item.Enseignant
-
-        if (!nom || !enseignantNom) continue
-
-        const enseignant = enseignants?.find(e => e.nom === enseignantNom)
-        console.log("enseignantExcel:", enseignantNom, "-> trouvé dans Supabase:", enseignant?.id || "non trouvé")
-
-
-        if (enseignant) {
-          coursToInsert.push({ nom, enseignant_id: enseignant.id })
-        } else {
-          coursIgnorés.push(item)
-        }
-      }
-
-      if (coursToInsert.length === 0) {
-        alert('Aucun cours valide trouvé dans le fichier.')
-        console.warn('Cours ignorés (enseignants non trouvés) :', coursIgnorés)
-        return
-      }
-
+    // 1. On insère d'abord les cours dont l'enseignant existe déjà
+    if (coursToInsert.length > 0) {
       const { error } = await supabase
         .from('cours')
         .insert(coursToInsert)
@@ -139,30 +161,105 @@ export default function CoursPage() {
 
       if (error) {
         alert('Erreur lors de l’importation des cours : ' + error.message)
+        return
       } else {
-        alert('Importation des cours réussie !')
-
-        // Recharge tous les cours depuis la base
-        const { data: coursData } = await supabase
-          .from('cours')
-          .select('id, nom, enseignant_id, enseignant (nom)')
-
-        if (coursData) {
-          const parsed = coursData.map((c: any) => ({
-            id: c.id,
-            nom: c.nom,
-            enseignant_id: c.enseignant_id,
-            enseignant_nom: c.enseignant?.nom || '',
-          }))
-          setCours(parsed)
-        }
+        alert('Importation des cours réussie (enseignants déjà répertoriés) !')
       }
-
-
     }
 
-    reader.readAsArrayBuffer(file)
+    // 2. On traite les cours ignorés (enseignants non trouvés)
+    if (coursIgnorés.length > 0) {
+      // Extraire les noms d'enseignants non trouvés (uniques)
+      const enseignantsManquants = [
+        ...new Set(
+          coursIgnorés
+            .map(item => {
+              const enseignantKey = findMatchingKey(item, [
+                'enseignant', 'enseignants', 'nom de lenseignant', 'nom enseignant', 'prof', 'professeur'
+              ])
+              return enseignantKey ? item[enseignantKey] : null
+            })
+            .filter(Boolean)
+        ),
+      ]
+
+      const confirmAjout = window.confirm(
+        `Les enseignants suivants ne sont pas répertoriés dans la base :\n\n${enseignantsManquants.join(
+          '\n'
+        )}\n\nVoulez-vous les ajouter et importer les cours associés ?`
+      )
+
+      if (confirmAjout) {
+        // Ajouter les enseignants manquants
+        const { data: newEns, error: errAjoutEns } = await supabase
+          .from('enseignants')
+          .insert(
+            enseignantsManquants.map(nom => ({ nom: String(nom) }))
+          )
+          .select()
+
+        if (errAjoutEns) {
+          alert("Erreur lors de l'ajout des enseignants : " + errAjoutEns.message)
+          return
+        }
+
+        // Recharger la liste des enseignants
+        const { data: enseignantsMaj } = await supabase
+          .from('enseignants')
+          .select('id, nom')
+
+        // Associer les cours ignorés aux nouveaux enseignants
+        const coursToInsert2 = coursIgnorés
+          .map(item => {
+            const nomKey = findMatchingKey(item, ['cours', 'nom du cours', 'nom'])
+            const enseignantKey = findMatchingKey(item, [
+              'enseignant', 'enseignants', 'nom de lenseignant', 'nom enseignant', 'prof', 'professeur'
+            ])
+            const nom = nomKey ? item[nomKey] : null
+            const enseignantNom = enseignantKey ? item[enseignantKey] : null
+            if (!nom || !enseignantNom) return null
+            const enseignant = enseignantsMaj?.find(
+              e => e.nom.toLowerCase().trim() === String(enseignantNom).toLowerCase().trim()
+            )
+            if (!enseignant) return null
+            return { nom: String(nom), enseignant_id: enseignant.id }
+          })
+          .filter(Boolean) as { nom: string; enseignant_id: string }[]
+
+        if (coursToInsert2.length > 0) {
+          const { error: errCours2 } = await supabase
+            .from('cours')
+            .insert(coursToInsert2)
+            .select()
+          if (errCours2) {
+            alert("Erreur lors de l'ajout des cours ignorés : " + errCours2.message)
+            return
+          }
+          alert('Importation des enseignants et des cours associés réussie !')
+        }
+      } else {
+        alert('Aucun enseignant/cours ignoré n’a été ajouté.')
+      }
+    }
+
+    // Recharge les cours avec la jointure sur les enseignants
+    const { data: coursData } = await supabase
+      .from('cours')
+      .select('id, nom, enseignant_id, enseignants (nom)')
+
+    if (coursData) {
+      const parsed = coursData.map((c: any) => ({
+        id: c.id,
+        nom: c.nom,
+        enseignant_id: c.enseignant_id,
+        enseignant_nom: c.enseignants?.nom || '',
+      }))
+      setCours(parsed)
+    }
   }
+
+  reader.readAsArrayBuffer(file)
+}
 
 
 
