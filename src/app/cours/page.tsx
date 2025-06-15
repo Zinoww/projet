@@ -105,7 +105,8 @@ export default function CoursPage() {
         Object.keys(item).find(k => possibleKeys.some(possible => k.toLowerCase().includes(possible)))
 
       const jsonData = XLSX.utils.sheet_to_json(sheet, { defval: "" }) as any[]
-      const coursToInsert: { nom: string; enseignant_id: string }[] = []
+      const coursToInsert: { nom: string; enseignant_id: string; type: string }[] = []
+
       const coursIgnorés: any[] = []
 
       for (const rawItem of jsonData) {
@@ -118,7 +119,8 @@ export default function CoursPage() {
 
         const nomKey = findMatchingKey(item, ['cours', 'nom du cours', 'nom'])
         const enseignantKey = findMatchingKey(item, ['enseignant', 'enseignants', 'prof'])
-
+        const typeKey = findMatchingKey(item, ['type', 'type de cours', 'nature'])
+        const type = typeKey ? item[typeKey] : 'Cours' // valeur par défaut
         const nom = nomKey ? item[nomKey] : null
         const enseignantNom = enseignantKey ? item[enseignantKey] : null
 
@@ -129,7 +131,8 @@ export default function CoursPage() {
         )
 
         if (enseignant) {
-          coursToInsert.push({ nom: String(nom), enseignant_id: enseignant.id })
+          coursToInsert.push({ nom: String(nom), enseignant_id: enseignant.id, type: String(type) })
+
         } else {
           coursIgnorés.push(item)
         }
@@ -164,14 +167,20 @@ export default function CoursPage() {
         )
 
         if (confirmAjout) {
-          await supabase.from('enseignants')
-            .insert(enseignantsManquants.map(nom => ({ nom: String(nom) })))
-            .select()
+          const enseignantsExistants = enseignants.map(e => e.nom.toLowerCase().trim())
 
-          // Re-importation possible ici
+          const nouveauxEnseignants = enseignantsManquants
+            .map(nom => String(nom).trim())
+            .filter(nom => !enseignantsExistants.includes(nom.toLowerCase()))
+
+          if (nouveauxEnseignants.length > 0) {
+            await supabase
+              .from('enseignants')
+              .insert(nouveauxEnseignants.map(nom => ({ nom })))
+              .select()
+          }
         }
       }
-
       const { data: coursData } = await supabase
         .from('cours')
         .select('id, nom, type, enseignant_id, enseignants (nom)')

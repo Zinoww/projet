@@ -37,7 +37,7 @@ export default function EmploiDuTempsPage() {
 
     const [emploisDuTemps, setEmploisDuTemps] = useState<any[]>([])
     const [generaEvents, setGeneratedEvents] = useState<any[]>([])
-    const [events, setEvents] = useState<Emploi[]>([])
+    const [events, setEvents] = useState<CalendarEvent[]>([]);
     const [loading, setLoading] = useState(false)
     const [message, setMessage] = useState('')
     const [startDate, setStartDate] = useState<string>('2024-06-01')
@@ -50,7 +50,7 @@ export default function EmploiDuTempsPage() {
         const { error } = await supabase
             .from('emplois_du_temps')
             .delete()
-            .eq('id', event.id) // ou autre champ identifiant
+            .eq('id', event.id) // ou autre champ identifiant   
 
         if (error) {
             alert("Erreur lors de la suppression.")
@@ -62,17 +62,18 @@ export default function EmploiDuTempsPage() {
 
     const fetchData = async () => {
         const { data, error } = await supabase
-            .from('emplois_du_temps')
-            .select(`
-                id,
-                date,
-                heure_debut,
-                heure_fin,
-                type,
-                cours: cours_id (id, nom),
-                salle: salle_id (id, nom),
-                enseignant: enseignant_id (id, nom)
-            `)
+        .from('emplois_du_temps')
+        .select(`
+            id,
+            date,
+            heure_debut,
+            heure_fin,
+            type,
+            cours (id, nom),
+            salle (id, nom),
+            enseignant (id, nom)
+        `);
+
 
         if (error) {
             console.error("❌ Erreur Supabase :", error)
@@ -96,6 +97,21 @@ export default function EmploiDuTempsPage() {
                 cours_id: e.cours_id,
             }
         })
+
+        const events = data.map(event => {
+        let color = '#3788d8'; // Couleur par défaut
+
+        if (event.type === 'CM') color = '#007bff'; // bleu
+        if (event.type === 'TD') color = '#28a745'; // vert
+        if (event.type === 'TP') color = '#ffc107'; // jaune
+
+        return {
+            ...event,
+            title: `[${event.type}] ${event.title}`,
+            backgroundColor: color
+  };
+});
+
 
         setEvents(parsed)
     }
@@ -299,6 +315,7 @@ export default function EmploiDuTempsPage() {
               date,
               heure_debut,
               heure_fin,
+              type,
               cours: cours_id (id, nom),
               salle: salle_id (id, nom)
             `)
@@ -324,41 +341,6 @@ export default function EmploiDuTempsPage() {
             alert("❌ Erreur lors de la génération des créneaux")
         }
     }
-
-    /* const handleGeneration = async () => {
-         if (!confirm("Voulez-vous vraiment générer un nouveau planning ? Cela remplacera l'existant.")) return;
-     
-         setLoading(true);
-         setMessage('Génération en cours...');
-     
-         // 1. Appeler le générateur
-         const sessions = await generatePlanning();
-     
-         // 2. Vider les anciens créneaux
-         const { error: deleteError } = await supabase.from('emplois_du_temps').delete().neq('id', '');
-         if (deleteError) {
-             setMessage("Erreur lors de la suppression de l'ancien planning.");
-             setLoading(false);
-             return;
-         }
-     
-         // 3. Insérer les nouveaux créneaux
-         const { error: insertError } = await supabase.from('emplois_du_temps').insert(sessions);
-         if (insertError) {
-             setMessage("Erreur lors de l'insertion du nouveau planning.");
-             setLoading(false);
-             return;
-         }
-     
-         setMessage("Planning généré avec succès 🎉");
-     
-         // 4. Recharger les données à afficher
-         await fetchData()
-     
-         setLoading(false);
-     };
-     
-    */
 
 
     const exportPDF = async () => {
@@ -507,3 +489,48 @@ export default function EmploiDuTempsPage() {
         </AuthGuard>
     )
 }
+
+import type { CalendarEvent } from './types'; // adapte selon ton arborescence
+
+async function fetchEvents(): Promise<CalendarEvent[]> {
+  const { data, error } = await supabase
+    .from('emplois_du_temps')
+    .select(`
+      id,
+      date,
+      heure_debut,
+      heure_fin,
+      type,
+      cours (id, nom),
+      salle (id, nom),
+      enseignant (id, nom)
+    `);
+
+  if (error) {
+    console.error('Erreur lors du chargement des événements:', error);
+    return [];
+  }
+
+  const events: CalendarEvent[] = (data || []).map((item) => {
+    const type = item.type || 'Cours';
+    const coursNom = Array.isArray(item.cours) ? item.cours[0]?.nom || '' : '';
+    const enseignantNom = Array.isArray(item.enseignant) ? item.enseignant[0]?.nom || '' : '';
+    const salleNom = Array.isArray(item.salle) ? item.salle[0]?.nom || '' : '';
+
+    return {
+      id: item.id.toString(),
+      title: `[${type}] ${coursNom} - ${enseignantNom}`,
+      start: `${item.date}T${item.heure_debut}`,
+      end: `${item.date}T${item.heure_fin}`,
+      description: `Salle: ${salleNom}`,
+      backgroundColor:
+        type === 'CM' ? '#007bff' :
+        type === 'TD' ? '#28a745' :
+        type === 'TP' ? '#ffc107' :
+        '#888'
+    };
+  });
+
+  return events;
+}
+

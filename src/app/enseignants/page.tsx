@@ -110,7 +110,9 @@ export default function EnseignantsPage() {
         setForm({
             nom: enseignant.nom,
             email: enseignant.email,
-            heures_travail: enseignant.heures_travail.toString()
+            heures_travail: enseignant.heures_travail !== null && enseignant.heures_travail !== undefined
+                ? enseignant.heures_travail.toString()
+                : ''
         })
     }
 
