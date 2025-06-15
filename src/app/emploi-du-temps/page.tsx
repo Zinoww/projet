@@ -28,12 +28,13 @@ type Emploi = {
     title: string
     type: 'Cours' | 'TD' | 'TP'
     salle_id: string
+    cours_id: string
     enseignant_id: string
 }
 
 export default function EmploiDuTempsPage() {
 
-    
+
     const [emploisDuTemps, setEmploisDuTemps] = useState<any[]>([])
     const [generaEvents, setGeneratedEvents] = useState<any[]>([])
     const [events, setEvents] = useState<Emploi[]>([])
@@ -41,6 +42,23 @@ export default function EmploiDuTempsPage() {
     const [message, setMessage] = useState('')
     const [startDate, setStartDate] = useState<string>('2024-06-01')
 
+
+    const handleDoubleClickEvent = async (event: any) => {
+        const confirmDelete = confirm(`Supprimer ce créneau : ${event.title} ?`)
+        if (!confirmDelete) return
+
+        const { error } = await supabase
+            .from('emplois_du_temps')
+            .delete()
+            .eq('id', event.id) // ou autre champ identifiant
+
+        if (error) {
+            alert("Erreur lors de la suppression.")
+        } else {
+            alert("Créneau supprimé ✅")
+            fetchData() // recharge les événements
+        }
+    }
 
     const fetchData = async () => {
         const { data, error } = await supabase
@@ -74,7 +92,8 @@ export default function EmploiDuTempsPage() {
                 title: `${e.cours?.nom || ''} | ${e.salle?.nom || ''} | ${e.enseignant?.nom || ''}`,
                 type: e.type,
                 salle_id: e.salle?.id,
-                enseignant_id: e.enseignant?.id
+                enseignant_id: e.enseignant?.id,
+                cours_id: e.cours_id,
             }
         })
 
@@ -93,6 +112,7 @@ export default function EmploiDuTempsPage() {
                 title: 'Test manuel',
                 type: 'Cours',
                 salle_id: 'salle-test',
+                cours_id: 'cour-test',
                 enseignant_id: 'ens-test'
             }
         ])
@@ -175,13 +195,24 @@ export default function EmploiDuTempsPage() {
             enseignantId: string,
             date: string,
             heure_debut: string,
-            heure_fin: string
+            heure_fin: string,
+            coursId: string
         ) => {
             return !emplois.some(e =>
-                (e.salle_id === salleId || e.enseignant_id === enseignantId) &&
-                chevauche(e, { date, heure_debut, heure_fin })
+                e.date === date &&
+                (
+                    // Salle déjà occupée
+                    (e.salle_id === salleId && chevauche(e, { date, heure_debut, heure_fin })) ||
+
+                    // Enseignant déjà occupé
+                    (e.enseignant_id === enseignantId && chevauche(e, { date, heure_debut, heure_fin })) ||
+
+                    // Ce cours déjà planifié ce jour-là (optionnel mais recommandé)
+                    (e.cours_id === coursId && chevauche(e, { date, heure_debut, heure_fin }))
+                )
             )
         }
+
 
         const backtrack = (index: number): boolean => {
             if (index === cours.length) return true
@@ -189,26 +220,29 @@ export default function EmploiDuTempsPage() {
             const coursActuel = cours[index]
             const enseignant = enseignants[index % enseignants.length]
 
-            for (let jour of jours) {
-                for (let { heure_debut, heure_fin } of creneaux) {
-                    for (let salle of salles) {
-                        if (estValide(salle.id, enseignant.id, jour, heure_debut, heure_fin)) {
-                            emplois.push({
-                                cours_id: coursActuel.id,
-                                salle_id: salle.id,
-                                date: jour,
-                                heure_debut,
-                                heure_fin,
-                                enseignant_id: enseignant.id,
-                                type: 'Cours'
-                            })
+            for (let enseignant of enseignants) {
+                for (let jour of jours) {
+                    for (let { heure_debut, heure_fin } of creneaux) {
+                        for (let salle of salles) {
+                            if (estValide(salle.id, enseignant.id, jour, heure_debut, heure_fin, coursActuel.id)) {
+                                emplois.push({
+                                    cours_id: coursActuel.id,
+                                    salle_id: salle.id,
+                                    date: jour,
+                                    heure_debut,
+                                    heure_fin,
+                                    enseignant_id: enseignant.id,
+                                    type: 'Cours'
+                                })
 
-                            if (backtrack(index + 1)) return true
-                            emplois.pop()
+                                if (backtrack(index + 1)) return true
+                                emplois.pop()
+                            }
                         }
                     }
                 }
             }
+
 
             return false
         }
@@ -227,40 +261,40 @@ export default function EmploiDuTempsPage() {
         setLoading(false)
     }
 
-const generateEmplois = async (): Promise<{ success: boolean }> => {
-    // Appelle une fonction Supabase, API ou fait une génération locale ici
-    const { error } = await supabase.rpc('generer_emplois_du_temps') // Exemple de fonction Supabase
-    return { success: !error }
-}
-
-const handleEventClick = async (event: any) => {
-    const confirmDelete = confirm(`Supprimer le cours "${event.title}" ?`)
-    if (!confirmDelete) return
-
-    const { error } = await supabase.from('emplois_du_temps').delete().eq('id', event.id)
-
-    if (error) {
-        alert('❌ Erreur lors de la suppression : ' + error.message)
-    } else {
-        const updated = events.filter(e => e.id !== event.id)
-        setEvents(updated)
-
-        alert('✅ Séance supprimée')
+    const generateEmplois = async (): Promise<{ success: boolean }> => {
+        // Appelle une fonction Supabase, API ou fait une génération locale ici
+        const { error } = await supabase.rpc('generer_emplois_du_temps') // Exemple de fonction Supabase
+        return { success: !error }
     }
-}
+
+    const handleEventClick = async (event: any) => {
+        const confirmDelete = confirm(`Supprimer le cours "${event.title}" ?`)
+        if (!confirmDelete) return
+
+        const { error } = await supabase.from('emplois_du_temps').delete().eq('id', event.id)
+
+        if (error) {
+            alert('❌ Erreur lors de la suppression : ' + error.message)
+        } else {
+            const updated = events.filter(e => e.id !== event.id)
+            setEvents(updated)
+
+            alert('✅ Séance supprimée')
+        }
+    }
 
 
 
-const handleGenererEmplois = async () => {
-    const result = await generateEmplois()
+    const handleGenererEmplois = async () => {
+        const result = await generateEmplois()
 
-    if (result.success) {
-        alert("✅ Créneaux générés avec succès")
+        if (result.success) {
+            alert("✅ Créneaux générés avec succès")
 
-        // Rechargement de la table emplois_du_temps
-        const { data, error } = await supabase
-            .from('emplois_du_temps')
-            .select(`
+            // Rechargement de la table emplois_du_temps
+            const { data, error } = await supabase
+                .from('emplois_du_temps')
+                .select(`
               id,
               date,
               heure_debut,
@@ -269,167 +303,195 @@ const handleGenererEmplois = async () => {
               salle: salle_id (id, nom)
             `)
 
-        if (error) {
-            alert("❌ Erreur lors du rechargement des emplois : " + error.message)
-            return
-        }
+            if (error) {
+                alert("❌ Erreur lors du rechargement des emplois : " + error.message)
+                return
+            }
 
-        // Traitement des données pour la table
-        const emplois = data.map((e: any) => ({
-            id: e.id,
-            date: e.date,
-            heure_debut: e.heure_debut,
-            heure_fin: e.heure_fin,
-            cours_nom: e.cours?.nom || '',
-            salle_nom: e.salle?.nom || ''
-        }))
+            // Traitement des données pour la table
+            const emplois = data.map((e: any) => ({
+                id: e.id,
+                date: e.date,
+                heure_debut: e.heure_debut,
+                heure_fin: e.heure_fin,
+                cours_nom: e.cours?.nom || '',
+                salle_nom: e.salle?.nom || ''
+            }))
 
-        // Met à jour l'état qui alimente la table HTML
-        setEmploisDuTemps(emplois)
-    } else {
-        alert("❌ Erreur lors de la génération des créneaux")
-    }
-}
-
-/* const handleGeneration = async () => {
-     if (!confirm("Voulez-vous vraiment générer un nouveau planning ? Cela remplacera l'existant.")) return;
- 
-     setLoading(true);
-     setMessage('Génération en cours...');
- 
-     // 1. Appeler le générateur
-     const sessions = await generatePlanning();
- 
-     // 2. Vider les anciens créneaux
-     const { error: deleteError } = await supabase.from('emplois_du_temps').delete().neq('id', '');
-     if (deleteError) {
-         setMessage("Erreur lors de la suppression de l'ancien planning.");
-         setLoading(false);
-         return;
-     }
- 
-     // 3. Insérer les nouveaux créneaux
-     const { error: insertError } = await supabase.from('emplois_du_temps').insert(sessions);
-     if (insertError) {
-         setMessage("Erreur lors de l'insertion du nouveau planning.");
-         setLoading(false);
-         return;
-     }
- 
-     setMessage("Planning généré avec succès 🎉");
- 
-     // 4. Recharger les données à afficher
-     await fetchData()
- 
-     setLoading(false);
- };
- 
-*/
-
-
-const exportPDF = async () => {
-    if (typeof window !== 'undefined') {
-        const html2pdf = (await import('html2pdf.js')).default;
-        const element = document.getElementById('print-zone');
-        if (element) {
-            html2pdf().from(element).save();
+            // Met à jour l'état qui alimente la table HTML
+            setEmploisDuTemps(emplois)
         } else {
-            setMessage("Élément PDF non trouvé")
+            alert("❌ Erreur lors de la génération des créneaux")
         }
     }
-}
-const [currentDate, setCurrentDate] = useState(new Date());
+
+    /* const handleGeneration = async () => {
+         if (!confirm("Voulez-vous vraiment générer un nouveau planning ? Cela remplacera l'existant.")) return;
+     
+         setLoading(true);
+         setMessage('Génération en cours...');
+     
+         // 1. Appeler le générateur
+         const sessions = await generatePlanning();
+     
+         // 2. Vider les anciens créneaux
+         const { error: deleteError } = await supabase.from('emplois_du_temps').delete().neq('id', '');
+         if (deleteError) {
+             setMessage("Erreur lors de la suppression de l'ancien planning.");
+             setLoading(false);
+             return;
+         }
+     
+         // 3. Insérer les nouveaux créneaux
+         const { error: insertError } = await supabase.from('emplois_du_temps').insert(sessions);
+         if (insertError) {
+             setMessage("Erreur lors de l'insertion du nouveau planning.");
+             setLoading(false);
+             return;
+         }
+     
+         setMessage("Planning généré avec succès 🎉");
+     
+         // 4. Recharger les données à afficher
+         await fetchData()
+     
+         setLoading(false);
+     };
+     
+    */
 
 
-// ✅ RETURN EN DEHORS DES FONCTIONS
-return (
-    <AuthGuard>
-        <div className="p-6 max-w-6xl mx-auto">
-            <Header />
-            <h1 className="text-2xl font-bold mb-6">Emploi du temps (glisser-déposer)</h1>
+    const exportPDF = async () => {
+        if (typeof window !== 'undefined') {
+            const html2pdf = (await import('html2pdf.js')).default;
+            const element = document.getElementById('print-zone');
+            if (element) {
+                html2pdf().from(element).save();
+            } else {
+                setMessage("Élément PDF non trouvé")
+            }
+        }
+    }
+    const onEventDrop = async ({ event, start, end }: any) => {
+        const newDate = moment(start).format('YYYY-MM-DD')
+        const newStart = moment(start).format('HH:mm')
+        const newEnd = moment(end).format('HH:mm')
 
-            <div className="flex flex-wrap items-center gap-4 mb-4">
-                <label className="text-sm">Date de début de semaine :</label>
-                <input
-                    type="date"
-                    className="border rounded px-2 py-1"
-                    value={startDate}
-                    onChange={e => setStartDate(e.target.value)}
-                />
+        const { error } = await supabase
+            .from('emplois_du_temps')
+            .update({
+                date: newDate,
+                heure_debut: newStart,
+                heure_fin: newEnd,
+            })
+            .eq('id', event.id)
 
-                <button
-                    onClick={generatePlanning}
-                    disabled={loading}
-                    className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700"
-                >
-                    {loading ? 'Génération...' : 'Générer automatiquement'}
-                </button>
+        if (!error) {
+            setEvents(prev =>
+                prev.map(e =>
+                    e.id === event.id ? { ...e, start, end } : e
+                )
+            )
+        } else {
+            alert("Erreur lors du déplacement du créneau.")
+        }
+    }
+
+    const [currentDate, setCurrentDate] = useState(new Date());
+    const DnDCalendar = withDragAndDrop(Calendar)
+    const localizer = momentLocalizer(moment)
+
+    // ✅ RETURN EN DEHORS DES FONCTIONS
+    return (
+        <AuthGuard>
+            <div className="p-6 max-w-6xl mx-auto">
+                <Header />
+                <h1 className="text-2xl font-bold mb-6">Emploi du temps (glisser-déposer)</h1>
+
+                <div className="flex flex-wrap items-center gap-4 mb-4">
+                    <label className="text-sm">Date de début de semaine :</label>
+                    <input
+                        type="date"
+                        className="border rounded px-2 py-1"
+                        value={startDate}
+                        onChange={e => setStartDate(e.target.value)}
+                    />
+
+                    <button
+                        onClick={generatePlanning}
+                        disabled={loading}
+                        className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700"
+                    >
+                        {loading ? 'Génération...' : 'Générer automatiquement'}
+                    </button>
 
 
 
 
-                <button
-                    onClick={exportPDF}
-                    className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
-                >
-                    Exporter en PDF
-                </button>
-            </div>
+                    <button
+                        onClick={exportPDF}
+                        className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+                    >
+                        Exporter en PDF
+                    </button>
+                </div>
 
-            <p className="text-sm text-gray-700 mb-4">{message}</p>
+                <p className="text-sm text-gray-700 mb-4">{message}</p>
 
-            <div id="print-zone" className="bg-white p-4">
-                <Calendar
-                    localizer={momentLocalizer(moment)}
-                    culture="fr"
-                    events={events}
-                    startAccessor={(event) => event.start}
-                    endAccessor={(event) => event.end}
-
-                    defaultView="week"
-                    views={['week']}
-                    date={currentDate}
-                    defaultDate={currentDate}
-                    onNavigate={(date) => setCurrentDate(date)}
-
-                    step={90}
-                    timeslots={1}
-                    min={new Date(1970, 1, 1, 8, 0)}
-                    max={new Date(1970, 1, 1, 17, 0)}
-                    onDrillDown={moveEvent}
-                    eventPropGetter={(event) => {
-                        const e = event as Emploi
-                        return {
-                            style: {
-                                backgroundColor: getColor(e.type),
-                                color: 'white',
-                                borderRadius: '6px',
-                                padding: '4px'
+                <div id="print-zone" className="bg-white p-4">
+                    <DnDCalendar
+                        culture="fr"
+                        startAccessor={(event) => new Date((event as Emploi).start)}
+                        endAccessor={(event) => new Date((event as Emploi).end)}
+                        localizer={localizer}
+                        events={events}
+                        style={{ height: 600 }}
+                        onDoubleClickEvent={handleDoubleClickEvent}
+                        defaultView="week"
+                        views={['week']}
+                        date={currentDate}
+                        defaultDate={currentDate}
+                        onNavigate={(date) => setCurrentDate(date)}
+                        step={90}
+                        timeslots={1}
+                        min={new Date(1970, 1, 1, 8, 0)}
+                        max={new Date(1970, 1, 1, 17, 0)}
+                        onEventDrop={onEventDrop}
+                        resizable
+                        eventPropGetter={(event) => {
+                            const e = event as Emploi
+                            return {
+                                style: {
+                                    backgroundColor: getColor(e.type),
+                                    color: 'white',
+                                    borderRadius: '6px',
+                                    padding: '4px'
+                                }
                             }
-                        }
-                    }}
-                    dayLayoutAlgorithm="no-overlap"
-                    messages={{
-                        today: "Aujourd'hui",
-                        previous: 'Précédent',
-                        next: 'Suivant',
-                        month: 'Mois',
-                        week: 'Semaine',
-                        day: 'Jour',
-                        agenda: 'Agenda',
-                        noEventsInRange: 'Aucun cours prévu'
-                    }}
-                    formats={{
-                        timeGutterFormat: (date, _, localizer) => {
-                            const start = moment(date)
-                            const end = moment(date).add(1.5, 'hours')
-                            return `${start.format('HH:mm')} - ${end.format('HH:mm')}`
-                        }
-                    }}
-                />
-            </div>
+                        }}
 
-            <style jsx global>{`
+                        dayLayoutAlgorithm="no-overlap"
+                        messages={{
+                            today: "Aujourd'hui",
+                            previous: 'Précédent',
+                            next: 'Suivant',
+                            month: 'Mois',
+                            week: 'Semaine',
+                            day: 'Jour',
+                            agenda: 'Agenda',
+                            noEventsInRange: 'Aucun cours prévu'
+                        }}
+                        formats={{
+                            timeGutterFormat: (date, _, localizer) => {
+                                const start = moment(date)
+                                const end = moment(date).add(1.5, 'hours')
+                                return `${start.format('HH:mm')} - ${end.format('HH:mm')}`
+                            }
+                        }}
+                    />
+                </div>
+
+                <style jsx global>{`
                     .rbc-header:nth-child(6),
                     .rbc-header:nth-child(7),
                     .rbc-day-bg:nth-child(6),
@@ -441,7 +503,7 @@ return (
                         display: none !important;
                     }
                 `}</style>
-        </div>
-    </AuthGuard>
-)
+            </div>
+        </AuthGuard>
+    )
 }
