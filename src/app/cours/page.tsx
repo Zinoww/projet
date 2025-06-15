@@ -21,6 +21,7 @@ export default function CoursPage() {
   const [cours, setCours] = useState<Cours[]>([])
   const [form, setForm] = useState({ nom: '', enseignant_id: '', type: '' })
   const [enseignants, setEnseignants] = useState<Enseignant[]>([])
+  const [editId, setEditId] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -49,40 +50,91 @@ export default function CoursPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    const { data: existingCours, error: checkError } = await supabase
-      .from('cours')
-      .select('id')
-      .eq('nom', form.nom)
+    if (editId) {
+      const { error } = await supabase
+        .from('cours')
+        .update({
+          nom: form.nom,
+          enseignant_id: form.enseignant_id,
+          type: form.type,
+        })
+        .eq('id', editId)
 
-    if (checkError) {
-      alert('Erreur lors de la vérification : ' + checkError.message)
-      return
-    }
+      if (error) {
+        alert('Erreur mise à jour : ' + error.message)
+      } else {
+        setCours(prev =>
+          prev.map(c =>
+            c.id === editId
+              ? {
+                  ...c,
+                  nom: form.nom,
+                  enseignant_id: form.enseignant_id,
+                  enseignant_nom: enseignants.find(e => e.id === form.enseignant_id)?.nom || '',
+                  type: form.type,
+                }
+              : c
+          )
+        )
+        setEditId(null)
+        setForm({ nom: '', enseignant_id: '', type: '' })
+      }
+    } else {
+      const { data: existingCours, error: checkError } = await supabase
+        .from('cours')
+        .select('id')
+        .eq('nom', form.nom)
 
-    if (existingCours && existingCours.length > 0) {
-      alert('Un cours avec ce nom existe déjà.')
-      return
-    }
-
-    const { data, error } = await supabase
-      .from('cours')
-      .insert([{ nom: form.nom, enseignant_id: form.enseignant_id, type: form.type }])
-      .select()
-
-    if (error) {
-      alert('Erreur : ' + error.message)
-    } else if (data && data.length > 0) {
-      const nouveauCours: Cours = {
-        id: data[0].id,
-        nom: data[0].nom,
-        enseignant_id: data[0].enseignant_id,
-        enseignant_nom: enseignants.find(e => e.id === form.enseignant_id)?.nom || '',
-        type: data[0].type,
+      if (checkError) {
+        alert('Erreur lors de la vérification : ' + checkError.message)
+        return
       }
 
-      setCours(prev => [...prev, nouveauCours])
-      setForm({ nom: '', enseignant_id: '', type: '' })
+      if (existingCours && existingCours.length > 0) {
+        alert('Un cours avec ce nom existe déjà.')
+        return
+      }
+
+      const { data, error } = await supabase
+        .from('cours')
+        .insert([{ nom: form.nom, enseignant_id: form.enseignant_id, type: form.type }])
+        .select()
+
+      if (error) {
+        alert('Erreur : ' + error.message)
+      } else if (data && data.length > 0) {
+        const nouveauCours: Cours = {
+          id: data[0].id,
+          nom: data[0].nom,
+          enseignant_id: data[0].enseignant_id,
+          enseignant_nom: enseignants.find(e => e.id === form.enseignant_id)?.nom || '',
+          type: data[0].type,
+        }
+
+        setCours(prev => [...prev, nouveauCours])
+        setForm({ nom: '', enseignant_id: '', type: '' })
+      }
     }
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Supprimer ce cours ?')) return
+
+    const { error } = await supabase.from('cours').delete().eq('id', id)
+    if (error) {
+      alert('Erreur suppression : ' + error.message)
+    } else {
+      setCours(prev => prev.filter(c => c.id !== id))
+    }
+  }
+
+  const handleEdit = (cours: Cours) => {
+    setEditId(cours.id)
+    setForm({
+      nom: cours.nom,
+      enseignant_id: cours.enseignant_id,
+      type: cours.type,
+    })
   }
 
   const handleImportCours = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -106,7 +158,6 @@ export default function CoursPage() {
 
       const jsonData = XLSX.utils.sheet_to_json(sheet, { defval: "" }) as any[]
       const coursToInsert: { nom: string; enseignant_id: string; type: string }[] = []
-
       const coursIgnorés: any[] = []
 
       for (const rawItem of jsonData) {
@@ -120,7 +171,7 @@ export default function CoursPage() {
         const nomKey = findMatchingKey(item, ['cours', 'nom du cours', 'nom'])
         const enseignantKey = findMatchingKey(item, ['enseignant', 'enseignants', 'prof'])
         const typeKey = findMatchingKey(item, ['type', 'type de cours', 'nature'])
-        const type = typeKey ? item[typeKey] : 'Cours' // valeur par défaut
+        const type = typeKey ? item[typeKey] : 'Cours'
         const nom = nomKey ? item[nomKey] : null
         const enseignantNom = enseignantKey ? item[enseignantKey] : null
 
@@ -132,13 +183,11 @@ export default function CoursPage() {
 
         if (enseignant) {
           coursToInsert.push({ nom: String(nom), enseignant_id: enseignant.id, type: String(type) })
-
         } else {
           coursIgnorés.push(item)
         }
       }
 
-      // Supabase check
       const { data: existingCours, error: existingErr } = await supabase.from('cours').select('nom')
       if (existingErr) {
         alert("Erreur lors de la vérification des cours existants : " + existingErr.message)
@@ -181,6 +230,7 @@ export default function CoursPage() {
           }
         }
       }
+
       const { data: coursData } = await supabase
         .from('cours')
         .select('id, nom, type, enseignant_id, enseignants (nom)')
@@ -200,7 +250,6 @@ export default function CoursPage() {
     reader.readAsArrayBuffer(file)
   }
 
-  // ✅ ✅ ✅ CORRECT placement du return ici :
   return (
     <div className="p-6 max-w-3xl mx-auto">
       <h1 className="text-2xl font-bold mb-6">Gestion des Cours</h1>
@@ -243,7 +292,7 @@ export default function CoursPage() {
         </select>
 
         <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
-          Ajouter le cours
+          {editId ? 'Mettre à jour' : 'Ajouter le cours'}
         </button>
       </form>
 
@@ -253,6 +302,7 @@ export default function CoursPage() {
             <th className="border px-2 py-1">Nom du cours</th>
             <th className="border px-2 py-1">Enseignant</th>
             <th className="border px-2 py-1">Type</th>
+            <th className="border px-2 py-1">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -261,6 +311,20 @@ export default function CoursPage() {
               <td className="border px-2 py-1">{c.nom}</td>
               <td className="border px-2 py-1">{c.enseignant_nom}</td>
               <td className="border px-2 py-1">{c.type}</td>
+              <td className="border px-2 py-1 space-x-2">
+                <button
+                  onClick={() => handleEdit(c)}
+                  className="text-blue-600 hover:underline"
+                >
+                  Modifier
+                </button>
+                <button
+                  onClick={() => handleDelete(c.id)}
+                  className="text-red-600 hover:underline"
+                >
+                  Supprimer
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>

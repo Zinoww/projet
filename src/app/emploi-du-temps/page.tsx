@@ -70,8 +70,8 @@ export default function EmploiDuTempsPage() {
             heure_fin,
             type,
             cours (id, nom),
-            salle (id, nom),
-            enseignant (id, nom)
+            salles (id, nom),
+            enseignants (id, nom)
         `);
 
 
@@ -241,6 +241,7 @@ export default function EmploiDuTempsPage() {
                     for (let { heure_debut, heure_fin } of creneaux) {
                         for (let salle of salles) {
                             if (estValide(salle.id, enseignant.id, jour, heure_debut, heure_fin, coursActuel.id)) {
+                                console.log('hh',coursActuel)
                                 emplois.push({
                                     cours_id: coursActuel.id,
                                     salle_id: salle.id,
@@ -248,7 +249,7 @@ export default function EmploiDuTempsPage() {
                                     heure_debut,
                                     heure_fin,
                                     enseignant_id: enseignant.id,
-                                    type: 'Cours'
+                                    type: coursActuel.type
                                 })
 
                                 if (backtrack(index + 1)) return true
@@ -317,7 +318,7 @@ export default function EmploiDuTempsPage() {
               heure_fin,
               type,
               cours: cours_id (id, nom),
-              salle: salle_id (id, nom)
+              salles: salle_id (id, nom)
             `)
 
             if (error) {
@@ -502,8 +503,8 @@ async function fetchEvents(): Promise<CalendarEvent[]> {
       heure_fin,
       type,
       cours (id, nom),
-      salle (id, nom),
-      enseignant (id, nom)
+      salles (id, nom),
+      enseignants (id, nom)
     `);
 
   if (error) {
@@ -514,8 +515,8 @@ async function fetchEvents(): Promise<CalendarEvent[]> {
   const events: CalendarEvent[] = (data || []).map((item) => {
     const type = item.type || 'Cours';
     const coursNom = Array.isArray(item.cours) ? item.cours[0]?.nom || '' : '';
-    const enseignantNom = Array.isArray(item.enseignant) ? item.enseignant[0]?.nom || '' : '';
-    const salleNom = Array.isArray(item.salle) ? item.salle[0]?.nom || '' : '';
+    const enseignantNom = Array.isArray(item.enseignants) ? item.enseignants[0]?.nom || '' : '';
+    const salleNom = Array.isArray(item.salles) ? item.salles[0]?.nom || '' : '';
 
     return {
       id: item.id.toString(),

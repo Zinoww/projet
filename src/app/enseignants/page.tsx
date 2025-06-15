@@ -91,6 +91,7 @@ export default function EnseignantsPage() {
                 email: form.email,
                 heures_travail: Number(form.heures_travail)
             }])
+            .select()
 
             if (error) {
                 alert('Erreur : ' + error.message)
@@ -99,8 +100,9 @@ export default function EnseignantsPage() {
         }
 
         setForm({ nom: '', email: '', heures_travail: '' })
-        fetchCours() // assure-toi que cette fonction est bien définie pour recharger les données
-    }
+        fetchCours()
+        fetchEnseignants() // assure-toi que cette fonction est bien définie pour recharger les données
+    }   
 
 
 
