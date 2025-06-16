@@ -18,7 +18,7 @@ import moment from 'moment'
 import 'moment/locale/fr'
 import * as XLSX from 'xlsx'
 import { useReactToPrint } from 'react-to-print'
-
+import { useRouter } from 'next/navigation'
 
 
 moment.locale('fr')
@@ -39,7 +39,7 @@ export default function CalendrierPage() {
     const [selectedSalle, setSelectedSalle] = useState('')
     const [startDate, setStartDate] = useState('')
     const [endDate, setEndDate] = useState('')
-
+    const router = useRouter()
 
     const colorMap = new Map<string, string>()
     const getColorForId = (id: string) => {
@@ -199,7 +199,12 @@ export default function CalendrierPage() {
             <div className="p-6 max-w-6xl mx-auto">
                 <Header />
                 <h1 className="text-2xl font-bold mb-6">Vue Calendrier</h1>
-
+                <button
+                    onClick={() => router.push('/')}
+                    className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
+                >
+                    ⬅️ Retour à l’accueil
+                </button>
                 <div className="flex gap-4 mb-4">
                     <select value={selectedCours} onChange={e => setSelectedCours(e.target.value)} className="border p-2 rounded">
                         <option value="">Tous les cours</option>

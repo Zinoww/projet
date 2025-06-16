@@ -13,7 +13,7 @@
   --foreground: #171717;
 }
 
-@media (prefers-color-scheme: light) {
+@media (prefers-color-scheme: black) {
   :root {
     /* Mode sombre */
     --background: #0a0a0a;

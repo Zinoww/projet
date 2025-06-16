@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/src/lib/supabaseClient'
 import * as XLSX from 'xlsx'
-
+import { useRouter } from 'next/navigation'
 type Enseignant = {
     id: string
     nom: string
@@ -15,7 +15,7 @@ export default function EnseignantsPage() {
     const [enseignants, setEnseignants] = useState<Enseignant[]>([])
     const [form, setForm] = useState({ nom: '', email: '', heures_travail: '' })
     const [editingId, setEditingId] = useState<string | null>(null)
-
+    const router = useRouter()
     const [cours, setCours] = useState<any[]>([])
 
     useEffect(() => {
@@ -91,7 +91,7 @@ export default function EnseignantsPage() {
                 email: form.email,
                 heures_travail: Number(form.heures_travail)
             }])
-            .select()
+                .select()
 
             if (error) {
                 alert('Erreur : ' + error.message)
@@ -102,7 +102,7 @@ export default function EnseignantsPage() {
         setForm({ nom: '', email: '', heures_travail: '' })
         fetchCours()
         fetchEnseignants() // assure-toi que cette fonction est bien définie pour recharger les données
-    }   
+    }
 
 
 
@@ -164,7 +164,12 @@ export default function EnseignantsPage() {
     return (
         <div className="p-6 max-w-3xl mx-auto">
             <h1 className="text-2xl font-bold mb-6">Gestion des Enseignants</h1>
-
+            <button
+                onClick={() => router.push('/')}
+                className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
+            >
+                ⬅️ Retour à l’accueil
+            </button>
             {/* Formulaire */}
             <form onSubmit={handleSubmit} className="space-y-4 mb-8">
 

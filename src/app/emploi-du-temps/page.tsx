@@ -15,10 +15,9 @@ import {
 import withDragAndDrop from 'react-big-calendar/lib/addons/dragAndDrop'
 import 'react-big-calendar/lib/addons/dragAndDrop/styles.css'
 import 'react-big-calendar/lib/css/react-big-calendar.css'
-
 moment.locale('fr')
 moment.updateLocale('fr', { week: { dow: 0 } }) // dimanche début
-
+import { useRouter } from 'next/navigation'
 
 
 type Emploi = {
@@ -41,6 +40,7 @@ export default function EmploiDuTempsPage() {
     const [loading, setLoading] = useState(false)
     const [message, setMessage] = useState('')
     const [startDate, setStartDate] = useState<string>('2024-06-01')
+    const router = useRouter()
 
 
     const handleDoubleClickEvent = async (event: any) => {
@@ -62,8 +62,8 @@ export default function EmploiDuTempsPage() {
 
     const fetchData = async () => {
         const { data, error } = await supabase
-        .from('emplois_du_temps')
-        .select(`
+            .from('emplois_du_temps')
+            .select(`
             id,
             date,
             heure_debut,
@@ -99,18 +99,18 @@ export default function EmploiDuTempsPage() {
         })
 
         const events = data.map(event => {
-        let color = '#3788d8'; // Couleur par défaut
+            let color = '#3788d8'; // Couleur par défaut
 
-        if (event.type === 'CM') color = '#007bff'; // bleu
-        if (event.type === 'TD') color = '#28a745'; // vert
-        if (event.type === 'TP') color = '#ffc107'; // jaune
+            if (event.type === 'CM') color = '#007bff'; // bleu
+            if (event.type === 'TD') color = '#28a745'; // vert
+            if (event.type === 'TP') color = '#ffc107'; // jaune
 
-        return {
-            ...event,
-            title: `[${event.type}] ${event.title}`,
-            backgroundColor: color
-  };
-});
+            return {
+                ...event,
+                title: `[${event.type}] ${event.title}`,
+                backgroundColor: color
+            };
+        });
 
 
         setEvents(parsed)
@@ -241,7 +241,7 @@ export default function EmploiDuTempsPage() {
                     for (let { heure_debut, heure_fin } of creneaux) {
                         for (let salle of salles) {
                             if (estValide(salle.id, enseignant.id, jour, heure_debut, heure_fin, coursActuel.id)) {
-                                console.log('hh',coursActuel)
+                                console.log('hh', coursActuel)
                                 emplois.push({
                                     cours_id: coursActuel.id,
                                     salle_id: salle.id,
@@ -390,7 +390,12 @@ export default function EmploiDuTempsPage() {
             <div className="p-6 max-w-6xl mx-auto">
                 <Header />
                 <h1 className="text-2xl font-bold mb-6">Emploi du temps (glisser-déposer)</h1>
-
+                <button
+                    onClick={() => router.push('/')}
+                    className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
+                >
+                    ⬅️ Retour à l’accueil
+                </button>
                 <div className="flex flex-wrap items-center gap-4 mb-4">
                     <label className="text-sm">Date de début de semaine :</label>
                     <input
@@ -490,48 +495,3 @@ export default function EmploiDuTempsPage() {
         </AuthGuard>
     )
 }
-
-import type { CalendarEvent } from './types'; // adapte selon ton arborescence
-
-async function fetchEvents(): Promise<CalendarEvent[]> {
-  const { data, error } = await supabase
-    .from('emplois_du_temps')
-    .select(`
-      id,
-      date,
-      heure_debut,
-      heure_fin,
-      type,
-      cours (id, nom),
-      salles (id, nom),
-      enseignants (id, nom)
-    `);
-
-  if (error) {
-    console.error('Erreur lors du chargement des événements:', error);
-    return [];
-  }
-
-  const events: CalendarEvent[] = (data || []).map((item) => {
-    const type = item.type || 'Cours';
-    const coursNom = Array.isArray(item.cours) ? item.cours[0]?.nom || '' : '';
-    const enseignantNom = Array.isArray(item.enseignants) ? item.enseignants[0]?.nom || '' : '';
-    const salleNom = Array.isArray(item.salles) ? item.salles[0]?.nom || '' : '';
-
-    return {
-      id: item.id.toString(),
-      title: `[${type}] ${coursNom} - ${enseignantNom}`,
-      start: `${item.date}T${item.heure_debut}`,
-      end: `${item.date}T${item.heure_fin}`,
-      description: `Salle: ${salleNom}`,
-      backgroundColor:
-        type === 'CM' ? '#007bff' :
-        type === 'TD' ? '#28a745' :
-        type === 'TP' ? '#ffc107' :
-        '#888'
-    };
-  });
-
-  return events;
-}
-
