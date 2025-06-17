@@ -15,10 +15,10 @@ import {
 import withDragAndDrop from 'react-big-calendar/lib/addons/dragAndDrop'
 import 'react-big-calendar/lib/addons/dragAndDrop/styles.css'
 import 'react-big-calendar/lib/css/react-big-calendar.css'
+
 moment.locale('fr')
 moment.updateLocale('fr', { week: { dow: 0 } }) // dimanche début
-import { useRouter } from 'next/navigation'
-import React from 'react';
+
 
 
 type Emploi = {
@@ -34,45 +34,13 @@ type Emploi = {
 
 export default function EmploiDuTempsPage() {
 
-    // ...all your useState hooks and other logic...
-
-    const generatePlanning = async () => {
-        if (!confirm("Voulez-vous vraiment générer un nouveau planning ? Cela remplacera l'existant.")) return
-
-        setLoading(true)
-        setMessage('Génération en cours...')
-
-        const { data: cours } = await supabase.from('cours').select('*')
-        const { data: salles } = await supabase.from('salles').select('*')
-        const { data: enseignants } = await supabase.from('enseignants').select('*')
-
-        if (!cours || !salles || !enseignants) {
-            setMessage("Erreur lors de la récupération des données.")
-            setLoading(false)
-            return
-        }
-
-        // ...rest of generatePlanning logic...
-    }
-
 
     const [emploisDuTemps, setEmploisDuTemps] = useState<any[]>([])
     const [generaEvents, setGeneratedEvents] = useState<any[]>([])
-    type CalendarEvent = {
-        id: string;
-        start: Date;
-        end: Date;
-        title: string;
-        type: string;
-        salle_id: string;
-        cours_id: string;
-        enseignant_id: string;
-    };
     const [events, setEvents] = useState<CalendarEvent[]>([]);
     const [loading, setLoading] = useState(false)
     const [message, setMessage] = useState('')
     const [startDate, setStartDate] = useState<string>('2024-06-01')
-    const router = useRouter()
 
 
     const handleDoubleClickEvent = async (event: any) => {
@@ -94,8 +62,8 @@ export default function EmploiDuTempsPage() {
 
     const fetchData = async () => {
         const { data, error } = await supabase
-            .from('emplois_du_temps')
-            .select(`
+        .from('emplois_du_temps')
+        .select(`
             id,
             date,
             heure_debut,
@@ -131,18 +99,18 @@ export default function EmploiDuTempsPage() {
         })
 
         const events = data.map(event => {
-            let color = '#3788d8'; // Couleur par défaut
+        let color = '#3788d8'; // Couleur par défaut
 
-            if (event.type === 'CM') color = '#007bff'; // bleu
-            if (event.type === 'TD') color = '#28a745'; // vert
-            if (event.type === 'TP') color = '#ffc107'; // jaune
+        if (event.type === 'CM') color = '#007bff'; // bleu
+        if (event.type === 'TD') color = '#28a745'; // vert
+        if (event.type === 'TP') color = '#ffc107'; // jaune
 
-            return {
-                ...event,
-                title: `[${event.type}] ${event.title}`,
-                backgroundColor: color
-            };
-        });
+        return {
+            ...event,
+            title: `[${event.type}] ${event.title}`,
+            backgroundColor: color
+  };
+});
 
 
         setEvents(parsed)
@@ -180,57 +148,135 @@ export default function EmploiDuTempsPage() {
         const heure_debut = moment(start).format('HH:mm')
         const heure_fin = moment(end).format('HH:mm')
 
-        // 🔧 Extraction des données depuis l'objet event
-        const cours_id = event.cours_id
-        const salle_id = event.salle_id
-        const enseignant_id = event.enseignant_id
-        const niveau_id = event.niveau_id
-        const specialite_id = event.specialite_id
-        const groupe_id = event.groupe_id
-
-        // Pour la vérification : on suppose que "jour" = "date" et "heure" = "heure_debut"
-        const jour = date
-        const heure = heure_debut
-
-        const { data: existing, error: checkError } = await supabase
+        const { error } = await supabase
             .from('emplois_du_temps')
-            .select('*')
-            .eq('cours_id', cours_id)
-            .eq('salle_id', salle_id)
-            .eq('jour', jour)
-            .eq('heure', heure)
+            .update({ date, heure_debut, heure_fin })
+            .eq('id', event.id)
 
-        if (checkError) {
-            console.error(checkError)
-            alert("Erreur de vérification : " + checkError.message)
-            return
-        }
-
-        if (existing && existing.length > 0) {
-            console.warn('Créneau déjà pris, insertion ignorée.')
-            return // évite le doublon
-        }
-
-        // ➕ Insertion réelle
-        const { error } = await supabase.from('emplois_du_temps').insert([{
-            cours_id,
-            enseignant_id,
-            salle_id,
-            jour,
-            heure,
-            niveau_id,
-            specialite_id,
-            groupe_id
-        }])
-
-        if (error) {
-            console.error(error)
-            alert("Erreur d'insertion : " + error.message)
+        if (!error) {
+            const updated = events.map(ev =>
+                ev.id === event.id ? { ...ev, start, end } : ev
+            )
+            setEvents(updated)
         }
     }
 
-    // Remove this duplicate generatePlanning function from the outer scope.
-    // The correct generatePlanning function is already defined inside your component and has access to setMessage.
+    const generatePlanning = async () => {
+        if (!confirm("Voulez-vous vraiment générer un nouveau planning ? Cela remplacera l'existant.")) return
+
+        setLoading(true)
+        setMessage('Génération en cours...')
+
+        const { data: cours } = await supabase.from('cours').select('*')
+        const { data: salles } = await supabase.from('salles').select('*')
+        const { data: enseignants } = await supabase.from('enseignants').select('*')
+
+        if (!cours || !salles || !enseignants) {
+            setMessage("Erreur lors de la récupération des données.")
+            setLoading(false)
+            return
+        }
+
+        const jours = Array.from({ length: 5 }).map((_, i) =>
+            moment(startDate).add(i, 'days').format('YYYY-MM-DD')
+        )
+
+        const creneaux = [
+            { heure_debut: '08:00', heure_fin: '09:30' },
+            { heure_debut: '09:30', heure_fin: '11:00' },
+            { heure_debut: '11:00', heure_fin: '12:30' },
+            { heure_debut: '12:30', heure_fin: '14:00' },
+            { heure_debut: '14:00', heure_fin: '15:30' },
+            { heure_debut: '15:30', heure_fin: '17:00' }
+        ]
+
+        type Session = {
+            cours_id: string
+            salle_id: string
+            date: string
+            heure_debut: string
+            heure_fin: string
+            enseignant_id: string
+            type: 'Cours' | 'TD' | 'TP'
+        }
+
+        const emplois: Session[] = []
+
+        const chevauche = (e1: any, e2: any) =>
+            e1.date === e2.date &&
+            (e1.heure_debut < e2.heure_fin && e2.heure_debut < e1.heure_fin)
+
+        const estValide = (
+            salleId: string,
+            enseignantId: string,
+            date: string,
+            heure_debut: string,
+            heure_fin: string,
+            coursId: string
+        ) => {
+            return !emplois.some(e =>
+                e.date === date &&
+                (
+                    // Salle déjà occupée
+                    (e.salle_id === salleId && chevauche(e, { date, heure_debut, heure_fin })) ||
+
+                    // Enseignant déjà occupé
+                    (e.enseignant_id === enseignantId && chevauche(e, { date, heure_debut, heure_fin })) ||
+
+                    // Ce cours déjà planifié ce jour-là (optionnel mais recommandé)
+                    (e.cours_id === coursId && chevauche(e, { date, heure_debut, heure_fin }))
+                )
+            )
+        }
+
+
+        const backtrack = (index: number): boolean => {
+            if (index === cours.length) return true
+
+            const coursActuel = cours[index]
+            const enseignant = enseignants[index % enseignants.length]
+
+            for (let enseignant of enseignants) {
+                for (let jour of jours) {
+                    for (let { heure_debut, heure_fin } of creneaux) {
+                        for (let salle of salles) {
+                            if (estValide(salle.id, enseignant.id, jour, heure_debut, heure_fin, coursActuel.id)) {
+                                console.log('hh',coursActuel)
+                                emplois.push({
+                                    cours_id: coursActuel.id,
+                                    salle_id: salle.id,
+                                    date: jour,
+                                    heure_debut,
+                                    heure_fin,
+                                    enseignant_id: enseignant.id,
+                                    type: coursActuel.type
+                                })
+
+                                if (backtrack(index + 1)) return true
+                                emplois.pop()
+                            }
+                        }
+                    }
+                }
+            }
+
+
+            return false
+        }
+
+        const success = backtrack(0)
+
+        if (success) {
+            await supabase.from('emplois_du_temps').delete().neq('id', '')
+            const { error } = await supabase.from('emplois_du_temps').insert(emplois)
+            setMessage(error ? "Erreur d'insertion." : "Planning généré avec succès 🎉")
+            fetchData()
+        } else {
+            setMessage("❌ Impossible de générer un planning valide.")
+        }
+
+        setLoading(false)
+    }
 
     const generateEmplois = async (): Promise<{ success: boolean }> => {
         // Appelle une fonction Supabase, API ou fait une génération locale ici
@@ -239,20 +285,22 @@ export default function EmploiDuTempsPage() {
     }
 
     const handleEventClick = async (event: any) => {
-        const confirmDelete = confirm(`Supprimer le cours "${event.title}" ?`);
-        if (!confirmDelete) return;
+        const confirmDelete = confirm(`Supprimer le cours "${event.title}" ?`)
+        if (!confirmDelete) return
 
-        const { error } = await supabase.from('emplois_du_temps').delete().eq('id', event.id);
+        const { error } = await supabase.from('emplois_du_temps').delete().eq('id', event.id)
 
         if (error) {
-            alert('❌ Erreur lors de la suppression : ' + error.message);
+            alert('❌ Erreur lors de la suppression : ' + error.message)
         } else {
-            // Typage explicite du paramètre e
-            setEvents((prevEvents: any[]) => prevEvents.filter((e: any) => e.id !== event.id));
+            const updated = events.filter(e => e.id !== event.id)
+            setEvents(updated)
 
-            alert('✅ Séance supprimée');
+            alert('✅ Séance supprimée')
         }
-    };
+    }
+
+
 
     const handleGenererEmplois = async () => {
         const result = await generateEmplois()
@@ -264,14 +312,14 @@ export default function EmploiDuTempsPage() {
             const { data, error } = await supabase
                 .from('emplois_du_temps')
                 .select(`
-                  id,
-                  date,
-                  heure_debut,
-                  heure_fin,
-                  type,
-                  cours: cours_id (id, nom),
-                  salles: salle_id (id, nom)
-                `)
+              id,
+              date,
+              heure_debut,
+              heure_fin,
+              type,
+              cours: cours_id (id, nom),
+              salles: salle_id (id, nom)
+            `)
 
             if (error) {
                 alert("❌ Erreur lors du rechargement des emplois : " + error.message)
@@ -294,6 +342,7 @@ export default function EmploiDuTempsPage() {
             alert("❌ Erreur lors de la génération des créneaux")
         }
     }
+
 
     const exportPDF = async () => {
         if (typeof window !== 'undefined') {
@@ -335,18 +384,13 @@ export default function EmploiDuTempsPage() {
     const DnDCalendar = withDragAndDrop(Calendar)
     const localizer = momentLocalizer(moment)
 
-    // ✅ RETURN inside the function body
+    // ✅ RETURN EN DEHORS DES FONCTIONS
     return (
         <AuthGuard>
             <div className="p-6 max-w-6xl mx-auto">
                 <Header />
                 <h1 className="text-2xl font-bold mb-6">Emploi du temps (glisser-déposer)</h1>
-                <button
-                    onClick={() => router.push('/')}
-                    className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
-                >
-                    ⬅️ Retour à l’accueil
-                </button>
+
                 <div className="flex flex-wrap items-center gap-4 mb-4">
                     <label className="text-sm">Date de début de semaine :</label>
                     <input
@@ -431,20 +475,62 @@ export default function EmploiDuTempsPage() {
                 </div>
 
                 <style jsx global>{`
-                        .rbc-header:nth-child(6),
-                        .rbc-header:nth-child(7),
-                        .rbc-day-bg:nth-child(6),
-                        .rbc-day-bg:nth-child(7),
-                        .rbc-day-slot:nth-child(6),
-                        .rbc-day-slot:nth-child(7),
-                        .rbc-time-content > * > .rbc-day-slot:nth-child(6),
-                        .rbc-time-content > * > .rbc-day-slot:nth-child(7) {
-                            display: none !important;
-                        }
-                    `}</style>
+                    .rbc-header:nth-child(6),
+                    .rbc-header:nth-child(7),
+                    .rbc-day-bg:nth-child(6),
+                    .rbc-day-bg:nth-child(7),
+                    .rbc-day-slot:nth-child(6),
+                    .rbc-day-slot:nth-child(7),
+                    .rbc-time-content > * > .rbc-day-slot:nth-child(6),
+                    .rbc-time-content > * > .rbc-day-slot:nth-child(7) {
+                        display: none !important;
+                    }
+                `}</style>
             </div>
         </AuthGuard>
     )
 }
 
+import type { CalendarEvent } from './types'; // adapte selon ton arborescence
 
+async function fetchEvents(): Promise<CalendarEvent[]> {
+  const { data, error } = await supabase
+    .from('emplois_du_temps')
+    .select(`
+      id,
+      date,
+      heure_debut,
+      heure_fin,
+      type,
+      cours (id, nom),
+      salles (id, nom),
+      enseignants (id, nom)
+    `);
+
+  if (error) {
+    console.error('Erreur lors du chargement des événements:', error);
+    return [];
+  }
+
+  const events: CalendarEvent[] = (data || []).map((item) => {
+    const type = item.type || 'Cours';
+    const coursNom = Array.isArray(item.cours) ? item.cours[0]?.nom || '' : '';
+    const enseignantNom = Array.isArray(item.enseignants) ? item.enseignants[0]?.nom || '' : '';
+    const salleNom = Array.isArray(item.salles) ? item.salles[0]?.nom || '' : '';
+
+    return {
+      id: item.id.toString(),
+      title: `[${type}] ${coursNom} - ${enseignantNom}`,
+      start: `${item.date}T${item.heure_debut}`,
+      end: `${item.date}T${item.heure_fin}`,
+      description: `Salle: ${salleNom}`,
+      backgroundColor:
+        type === 'CM' ? '#007bff' :
+        type === 'TD' ? '#28a745' :
+        type === 'TP' ? '#ffc107' :
+        '#888'
+    };
+  });
+
+  return events;
+}
