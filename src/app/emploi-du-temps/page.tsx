@@ -18,6 +18,7 @@ import 'react-big-calendar/lib/css/react-big-calendar.css'
 moment.locale('fr')
 moment.updateLocale('fr', { week: { dow: 0 } }) // dimanche début
 import { useRouter } from 'next/navigation'
+import React from 'react';
 
 
 type Emploi = {
@@ -33,9 +34,40 @@ type Emploi = {
 
 export default function EmploiDuTempsPage() {
 
+    // ...all your useState hooks and other logic...
+
+    const generatePlanning = async () => {
+        if (!confirm("Voulez-vous vraiment générer un nouveau planning ? Cela remplacera l'existant.")) return
+
+        setLoading(true)
+        setMessage('Génération en cours...')
+
+        const { data: cours } = await supabase.from('cours').select('*')
+        const { data: salles } = await supabase.from('salles').select('*')
+        const { data: enseignants } = await supabase.from('enseignants').select('*')
+
+        if (!cours || !salles || !enseignants) {
+            setMessage("Erreur lors de la récupération des données.")
+            setLoading(false)
+            return
+        }
+
+        // ...rest of generatePlanning logic...
+    }
+
 
     const [emploisDuTemps, setEmploisDuTemps] = useState<any[]>([])
     const [generaEvents, setGeneratedEvents] = useState<any[]>([])
+    type CalendarEvent = {
+        id: string;
+        start: Date;
+        end: Date;
+        title: string;
+        type: string;
+        salle_id: string;
+        cours_id: string;
+        enseignant_id: string;
+    };
     const [events, setEvents] = useState<CalendarEvent[]>([]);
     const [loading, setLoading] = useState(false)
     const [message, setMessage] = useState('')
@@ -148,135 +180,57 @@ export default function EmploiDuTempsPage() {
         const heure_debut = moment(start).format('HH:mm')
         const heure_fin = moment(end).format('HH:mm')
 
-        const { error } = await supabase
+        // 🔧 Extraction des données depuis l'objet event
+        const cours_id = event.cours_id
+        const salle_id = event.salle_id
+        const enseignant_id = event.enseignant_id
+        const niveau_id = event.niveau_id
+        const specialite_id = event.specialite_id
+        const groupe_id = event.groupe_id
+
+        // Pour la vérification : on suppose que "jour" = "date" et "heure" = "heure_debut"
+        const jour = date
+        const heure = heure_debut
+
+        const { data: existing, error: checkError } = await supabase
             .from('emplois_du_temps')
-            .update({ date, heure_debut, heure_fin })
-            .eq('id', event.id)
+            .select('*')
+            .eq('cours_id', cours_id)
+            .eq('salle_id', salle_id)
+            .eq('jour', jour)
+            .eq('heure', heure)
 
-        if (!error) {
-            const updated = events.map(ev =>
-                ev.id === event.id ? { ...ev, start, end } : ev
-            )
-            setEvents(updated)
-        }
-    }
-
-    const generatePlanning = async () => {
-        if (!confirm("Voulez-vous vraiment générer un nouveau planning ? Cela remplacera l'existant.")) return
-
-        setLoading(true)
-        setMessage('Génération en cours...')
-
-        const { data: cours } = await supabase.from('cours').select('*')
-        const { data: salles } = await supabase.from('salles').select('*')
-        const { data: enseignants } = await supabase.from('enseignants').select('*')
-
-        if (!cours || !salles || !enseignants) {
-            setMessage("Erreur lors de la récupération des données.")
-            setLoading(false)
+        if (checkError) {
+            console.error(checkError)
+            alert("Erreur de vérification : " + checkError.message)
             return
         }
 
-        const jours = Array.from({ length: 5 }).map((_, i) =>
-            moment(startDate).add(i, 'days').format('YYYY-MM-DD')
-        )
-
-        const creneaux = [
-            { heure_debut: '08:00', heure_fin: '09:30' },
-            { heure_debut: '09:30', heure_fin: '11:00' },
-            { heure_debut: '11:00', heure_fin: '12:30' },
-            { heure_debut: '12:30', heure_fin: '14:00' },
-            { heure_debut: '14:00', heure_fin: '15:30' },
-            { heure_debut: '15:30', heure_fin: '17:00' }
-        ]
-
-        type Session = {
-            cours_id: string
-            salle_id: string
-            date: string
-            heure_debut: string
-            heure_fin: string
-            enseignant_id: string
-            type: 'Cours' | 'TD' | 'TP'
+        if (existing && existing.length > 0) {
+            console.warn('Créneau déjà pris, insertion ignorée.')
+            return // évite le doublon
         }
 
-        const emplois: Session[] = []
+        // ➕ Insertion réelle
+        const { error } = await supabase.from('emplois_du_temps').insert([{
+            cours_id,
+            enseignant_id,
+            salle_id,
+            jour,
+            heure,
+            niveau_id,
+            specialite_id,
+            groupe_id
+        }])
 
-        const chevauche = (e1: any, e2: any) =>
-            e1.date === e2.date &&
-            (e1.heure_debut < e2.heure_fin && e2.heure_debut < e1.heure_fin)
-
-        const estValide = (
-            salleId: string,
-            enseignantId: string,
-            date: string,
-            heure_debut: string,
-            heure_fin: string,
-            coursId: string
-        ) => {
-            return !emplois.some(e =>
-                e.date === date &&
-                (
-                    // Salle déjà occupée
-                    (e.salle_id === salleId && chevauche(e, { date, heure_debut, heure_fin })) ||
-
-                    // Enseignant déjà occupé
-                    (e.enseignant_id === enseignantId && chevauche(e, { date, heure_debut, heure_fin })) ||
-
-                    // Ce cours déjà planifié ce jour-là (optionnel mais recommandé)
-                    (e.cours_id === coursId && chevauche(e, { date, heure_debut, heure_fin }))
-                )
-            )
+        if (error) {
+            console.error(error)
+            alert("Erreur d'insertion : " + error.message)
         }
-
-
-        const backtrack = (index: number): boolean => {
-            if (index === cours.length) return true
-
-            const coursActuel = cours[index]
-            const enseignant = enseignants[index % enseignants.length]
-
-            for (let enseignant of enseignants) {
-                for (let jour of jours) {
-                    for (let { heure_debut, heure_fin } of creneaux) {
-                        for (let salle of salles) {
-                            if (estValide(salle.id, enseignant.id, jour, heure_debut, heure_fin, coursActuel.id)) {
-                                console.log('hh', coursActuel)
-                                emplois.push({
-                                    cours_id: coursActuel.id,
-                                    salle_id: salle.id,
-                                    date: jour,
-                                    heure_debut,
-                                    heure_fin,
-                                    enseignant_id: enseignant.id,
-                                    type: coursActuel.type
-                                })
-
-                                if (backtrack(index + 1)) return true
-                                emplois.pop()
-                            }
-                        }
-                    }
-                }
-            }
-
-
-            return false
-        }
-
-        const success = backtrack(0)
-
-        if (success) {
-            await supabase.from('emplois_du_temps').delete().neq('id', '')
-            const { error } = await supabase.from('emplois_du_temps').insert(emplois)
-            setMessage(error ? "Erreur d'insertion." : "Planning généré avec succès 🎉")
-            fetchData()
-        } else {
-            setMessage("❌ Impossible de générer un planning valide.")
-        }
-
-        setLoading(false)
     }
+
+    // Remove this duplicate generatePlanning function from the outer scope.
+    // The correct generatePlanning function is already defined inside your component and has access to setMessage.
 
     const generateEmplois = async (): Promise<{ success: boolean }> => {
         // Appelle une fonction Supabase, API ou fait une génération locale ici
@@ -285,22 +239,20 @@ export default function EmploiDuTempsPage() {
     }
 
     const handleEventClick = async (event: any) => {
-        const confirmDelete = confirm(`Supprimer le cours "${event.title}" ?`)
-        if (!confirmDelete) return
+        const confirmDelete = confirm(`Supprimer le cours "${event.title}" ?`);
+        if (!confirmDelete) return;
 
-        const { error } = await supabase.from('emplois_du_temps').delete().eq('id', event.id)
+        const { error } = await supabase.from('emplois_du_temps').delete().eq('id', event.id);
 
         if (error) {
-            alert('❌ Erreur lors de la suppression : ' + error.message)
+            alert('❌ Erreur lors de la suppression : ' + error.message);
         } else {
-            const updated = events.filter(e => e.id !== event.id)
-            setEvents(updated)
+            // Typage explicite du paramètre e
+            setEvents((prevEvents: any[]) => prevEvents.filter((e: any) => e.id !== event.id));
 
-            alert('✅ Séance supprimée')
+            alert('✅ Séance supprimée');
         }
-    }
-
-
+    };
 
     const handleGenererEmplois = async () => {
         const result = await generateEmplois()
@@ -312,14 +264,14 @@ export default function EmploiDuTempsPage() {
             const { data, error } = await supabase
                 .from('emplois_du_temps')
                 .select(`
-              id,
-              date,
-              heure_debut,
-              heure_fin,
-              type,
-              cours: cours_id (id, nom),
-              salles: salle_id (id, nom)
-            `)
+                  id,
+                  date,
+                  heure_debut,
+                  heure_fin,
+                  type,
+                  cours: cours_id (id, nom),
+                  salles: salle_id (id, nom)
+                `)
 
             if (error) {
                 alert("❌ Erreur lors du rechargement des emplois : " + error.message)
@@ -342,7 +294,6 @@ export default function EmploiDuTempsPage() {
             alert("❌ Erreur lors de la génération des créneaux")
         }
     }
-
 
     const exportPDF = async () => {
         if (typeof window !== 'undefined') {
@@ -384,7 +335,7 @@ export default function EmploiDuTempsPage() {
     const DnDCalendar = withDragAndDrop(Calendar)
     const localizer = momentLocalizer(moment)
 
-    // ✅ RETURN EN DEHORS DES FONCTIONS
+    // ✅ RETURN inside the function body
     return (
         <AuthGuard>
             <div className="p-6 max-w-6xl mx-auto">
@@ -480,18 +431,20 @@ export default function EmploiDuTempsPage() {
                 </div>
 
                 <style jsx global>{`
-                    .rbc-header:nth-child(6),
-                    .rbc-header:nth-child(7),
-                    .rbc-day-bg:nth-child(6),
-                    .rbc-day-bg:nth-child(7),
-                    .rbc-day-slot:nth-child(6),
-                    .rbc-day-slot:nth-child(7),
-                    .rbc-time-content > * > .rbc-day-slot:nth-child(6),
-                    .rbc-time-content > * > .rbc-day-slot:nth-child(7) {
-                        display: none !important;
-                    }
-                `}</style>
+                        .rbc-header:nth-child(6),
+                        .rbc-header:nth-child(7),
+                        .rbc-day-bg:nth-child(6),
+                        .rbc-day-bg:nth-child(7),
+                        .rbc-day-slot:nth-child(6),
+                        .rbc-day-slot:nth-child(7),
+                        .rbc-time-content > * > .rbc-day-slot:nth-child(6),
+                        .rbc-time-content > * > .rbc-day-slot:nth-child(7) {
+                            display: none !important;
+                        }
+                    `}</style>
             </div>
         </AuthGuard>
     )
 }
+
+

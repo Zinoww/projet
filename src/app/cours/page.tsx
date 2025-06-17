@@ -12,27 +12,19 @@ type Cours = {
   enseignant_id: string
   enseignant_nom: string
   type: string
-  niveau_id: string
-  specialite_id: string
-  groupe_id: string
+
 }
 
 type Enseignant = {
   id: string
   nom: string
 }
-type Niveau = { id: string; nom: string };
-type Specialite = { id: string; nom: string; niveau_id: string };
-type Groupe = { id: string; nom: string; specialite_id: string };
 
 export default function CoursPage() {
   const [cours, setCours] = useState<Cours[]>([])
   const [enseignants, setEnseignants] = useState<Enseignant[]>([])
   const [editId, setEditId] = useState<string | null>(null)
   const router = useRouter()
-  const [niveaux, setNiveaux] = useState<Niveau[]>([]);
-  const [specialites, setSpecialites] = useState<Specialite[]>([]);
-  const [groupes, setGroupes] = useState<Groupe[]>([]);
   const [form, setForm] = useState({
     nom: '',
     enseignant_id: '',
@@ -55,9 +47,6 @@ export default function CoursPage() {
       const { data: groupesData } = await supabase.from('groupes').select('id, nom, specialite_id');
 
       if (enseignantsData) setEnseignants(enseignantsData);
-      if (niveauxData) setNiveaux(niveauxData);
-      if (specialitesData) setSpecialites(specialitesData);
-      if (groupesData) setGroupes(groupesData);
 
       if (coursData) {
         const parsed = coursData.map((c: any) => ({
@@ -161,9 +150,7 @@ export default function CoursPage() {
           enseignant_id: data[0].enseignant_id,
           enseignant_nom: enseignants.find(e => e.id === form.enseignant_id)?.nom || '',
           type: data[0].type,
-          niveau_id: data[0].niveau_id,
-          specialite_id: data[0].specialite_id,
-          groupe_id: data[0].groupe_id,
+
         };
 
         setCours(prev => [...prev, nouveauCours]);
@@ -309,51 +296,6 @@ export default function CoursPage() {
           onChange={e => setForm({ ...form, nom: e.target.value })}
           required
         />
-        {/* Niveau d'étude */}
-        <select
-          className="w-full border p-2 rounded mt-4"
-          value={form.niveau_id}
-          onChange={e => setForm({ ...form, niveau_id: e.target.value, specialite_id: '', groupe_id: '' })}
-          required
-        >
-          <option value="">Sélectionnez un niveau</option>
-          {niveaux.map(niv => (
-            <option key={niv.id} value={niv.id}>{niv.nom}</option>
-          ))}
-        </select>
-
-        {/* Spécialité (dépend du niveau sélectionné) */}
-        <select
-          className="w-full border p-2 rounded mt-4"
-          value={form.specialite_id}
-          onChange={e => setForm({ ...form, specialite_id: e.target.value, groupe_id: '' })}
-          required
-          disabled={!form.niveau_id}
-        >
-          <option value="">Sélectionnez une spécialité</option>
-          {specialites
-            .filter(sp => sp.niveau_id === form.niveau_id)
-            .map(sp => (
-              <option key={sp.id} value={sp.id}>{sp.nom}</option>
-            ))}
-        </select>
-
-        {/* Groupe (dépend de la spécialité sélectionnée) */}
-        <select
-          className="w-full border p-2 rounded mt-4"
-          value={form.groupe_id}
-          onChange={e => setForm({ ...form, groupe_id: e.target.value })}
-          required
-          disabled={!form.specialite_id}
-        >
-          <option value="">Sélectionnez un groupe</option>
-          {groupes
-            .filter(gr => gr.specialite_id === form.specialite_id)
-            .map(gr => (
-              <option key={gr.id} value={gr.id}>{gr.nom}</option>
-            ))}
-        </select>
-
 
         <button type="submit">Enregistrer</button>
         <select
