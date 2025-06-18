@@ -62,8 +62,8 @@ export default function EmploiDuTempsPage() {
 
     const fetchData = async () => {
         const { data, error } = await supabase
-        .from('emplois_du_temps')
-        .select(`
+            .from('emplois_du_temps')
+            .select(`
             id,
             date,
             heure_debut,
@@ -99,18 +99,18 @@ export default function EmploiDuTempsPage() {
         })
 
         const events = data.map(event => {
-        let color = '#3788d8'; // Couleur par défaut
+            let color = '#3788d8'; // Couleur par défaut
 
-        if (event.type === 'CM') color = '#007bff'; // bleu
-        if (event.type === 'TD') color = '#28a745'; // vert
-        if (event.type === 'TP') color = '#ffc107'; // jaune
+            if (event.type === 'CM') color = '#007bff'; // bleu
+            if (event.type === 'TD') color = '#28a745'; // vert
+            if (event.type === 'TP') color = '#ffc107'; // jaune
 
-        return {
-            ...event,
-            title: `[${event.type}] ${event.title}`,
-            backgroundColor: color
-  };
-});
+            return {
+                ...event,
+                title: `[${event.type}] ${event.title}`,
+                backgroundColor: color
+            };
+        });
 
 
         setEvents(parsed)
@@ -162,7 +162,31 @@ export default function EmploiDuTempsPage() {
     }
 
     const generatePlanning = async () => {
-        if (!confirm("Voulez-vous vraiment générer un nouveau planning ? Cela remplacera l'existant.")) return
+        const { data: emploisExistantsRaw } = await supabase
+            .from('emplois_du_temps')
+            .select('* ,  enseignants:enseignant_id ( nom ) ')
+            .gte('date', moment(startDate).format('YYYY-MM-DD'))
+            .lte('date', moment(startDate).add(4, 'days').format('YYYY-MM-DD'))
+
+        const emploisExistants = emploisExistantsRaw ?? []
+
+        if (emploisExistants.length > 0) {
+            const confirmDelete = confirm("❌ Un planning existe déjà pour cette période. Voulez-vous le supprimer et générer un nouveau planning ?");
+            if (!confirmDelete) return;
+
+            const { error: deleteError } = await supabase
+                .from('emplois_du_temps')
+                .delete()
+                .gte('date', moment(startDate).format('YYYY-MM-DD'))
+                .lte('date', moment(startDate).add(4, 'days').format('YYYY-MM-DD'))
+
+            if (deleteError) {
+                alert("Erreur lors de la suppression de l'ancien planning : " + deleteError.message)
+                return
+            }
+        }
+
+        if (!confirm("Voulez-vous vraiment générer un nouveau planning ?")) return;
 
         setLoading(true)
         setMessage('Génération en cours...')
@@ -202,9 +226,8 @@ export default function EmploiDuTempsPage() {
 
         const emplois: Session[] = []
 
-        const chevauche = (e1: any, e2: any) =>
-            e1.date === e2.date &&
-            (e1.heure_debut < e2.heure_fin && e2.heure_debut < e1.heure_fin)
+        const chevauche = (a: { heure_debut: string, heure_fin: string }, b: { heure_debut: string, heure_fin: string }) =>
+            a.heure_debut < b.heure_fin && b.heure_debut < a.heure_fin
 
         const estValide = (
             salleId: string,
@@ -214,35 +237,38 @@ export default function EmploiDuTempsPage() {
             heure_fin: string,
             coursId: string
         ) => {
-            return !emplois.some(e =>
-                e.date === date &&
-                (
-                    // Salle déjà occupée
-                    (e.salle_id === salleId && chevauche(e, { date, heure_debut, heure_fin })) ||
+            const nouvelleSession = { date, heure_debut, heure_fin }
 
-                    // Enseignant déjà occupé
-                    (e.enseignant_id === enseignantId && chevauche(e, { date, heure_debut, heure_fin })) ||
-
-                    // Ce cours déjà planifié ce jour-là (optionnel mais recommandé)
-                    (e.cours_id === coursId && chevauche(e, { date, heure_debut, heure_fin }))
+            const conflit = (session: any) =>
+                session.date === date && (
+                    (session.salle_id === salleId && chevauche(session, nouvelleSession)) ||
+                    (session.enseignant_id === enseignantId && chevauche(session, nouvelleSession)) ||
+                    (session.cours_id === coursId && chevauche(session, nouvelleSession))
                 )
-            )
-        }
 
+            const dejaPlanifie = (session: any) =>
+                session.date === date &&
+                session.cours_id === coursId &&
+                session.heure_debut === heure_debut &&
+                session.heure_fin === heure_fin
+
+            return !emplois.some(conflit)
+                && !emploisExistants.some(conflit)
+                && !emplois.some(dejaPlanifie)
+                && !emploisExistants.some(dejaPlanifie)
+        }
 
         const backtrack = (index: number): boolean => {
             if (index === cours.length) return true
 
             const coursActuel = cours[index]
-            const enseignant = enseignants[index % enseignants.length]
 
             for (let enseignant of enseignants) {
                 for (let jour of jours) {
                     for (let { heure_debut, heure_fin } of creneaux) {
                         for (let salle of salles) {
                             if (estValide(salle.id, enseignant.id, jour, heure_debut, heure_fin, coursActuel.id)) {
-                                console.log('hh',coursActuel)
-                                emplois.push({
+                                const session: Session = {
                                     cours_id: coursActuel.id,
                                     salle_id: salle.id,
                                     date: jour,
@@ -250,8 +276,9 @@ export default function EmploiDuTempsPage() {
                                     heure_fin,
                                     enseignant_id: enseignant.id,
                                     type: coursActuel.type
-                                })
+                                }
 
+                                emplois.push(session)
                                 if (backtrack(index + 1)) return true
                                 emplois.pop()
                             }
@@ -260,14 +287,12 @@ export default function EmploiDuTempsPage() {
                 }
             }
 
-
             return false
         }
 
         const success = backtrack(0)
 
         if (success) {
-            await supabase.from('emplois_du_temps').delete().neq('id', '')
             const { error } = await supabase.from('emplois_du_temps').insert(emplois)
             setMessage(error ? "Erreur d'insertion." : "Planning généré avec succès 🎉")
             fetchData()
@@ -277,6 +302,9 @@ export default function EmploiDuTempsPage() {
 
         setLoading(false)
     }
+
+
+
 
     const generateEmplois = async (): Promise<{ success: boolean }> => {
         // Appelle une fonction Supabase, API ou fait une génération locale ici
@@ -494,9 +522,9 @@ export default function EmploiDuTempsPage() {
 import type { CalendarEvent } from './types'; // adapte selon ton arborescence
 
 async function fetchEvents(): Promise<CalendarEvent[]> {
-  const { data, error } = await supabase
-    .from('emplois_du_temps')
-    .select(`
+    const { data, error } = await supabase
+        .from('emplois_du_temps')
+        .select(`
       id,
       date,
       heure_debut,
@@ -507,30 +535,30 @@ async function fetchEvents(): Promise<CalendarEvent[]> {
       enseignants (id, nom)
     `);
 
-  if (error) {
-    console.error('Erreur lors du chargement des événements:', error);
-    return [];
-  }
+    if (error) {
+        console.error('Erreur lors du chargement des événements:', error);
+        return [];
+    }
 
-  const events: CalendarEvent[] = (data || []).map((item) => {
-    const type = item.type || 'Cours';
-    const coursNom = Array.isArray(item.cours) ? item.cours[0]?.nom || '' : '';
-    const enseignantNom = Array.isArray(item.enseignants) ? item.enseignants[0]?.nom || '' : '';
-    const salleNom = Array.isArray(item.salles) ? item.salles[0]?.nom || '' : '';
+    const events: CalendarEvent[] = (data || []).map((item) => {
+        const type = item.type || 'Cours';
+        const coursNom = Array.isArray(item.cours) ? item.cours[0]?.nom || '' : '';
+        const enseignantNom = Array.isArray(item.enseignants) ? item.enseignants[0]?.nom || '' : '';
+        const salleNom = Array.isArray(item.salles) ? item.salles[0]?.nom || '' : '';
 
-    return {
-      id: item.id.toString(),
-      title: `[${type}] ${coursNom} - ${enseignantNom}`,
-      start: `${item.date}T${item.heure_debut}`,
-      end: `${item.date}T${item.heure_fin}`,
-      description: `Salle: ${salleNom}`,
-      backgroundColor:
-        type === 'CM' ? '#007bff' :
-        type === 'TD' ? '#28a745' :
-        type === 'TP' ? '#ffc107' :
-        '#888'
-    };
-  });
+        return {
+            id: item.id.toString(),
+            title: `[${type}] ${coursNom} - ${enseignantNom}`,
+            start: `${item.date}T${item.heure_debut}`,
+            end: `${item.date}T${item.heure_fin}`,
+            description: `Salle: ${salleNom}`,
+            backgroundColor:
+                type === 'CM' ? '#007bff' :
+                    type === 'TD' ? '#28a745' :
+                        type === 'TP' ? '#ffc107' :
+                            '#888'
+        };
+    });
 
-  return events;
+    return events;
 }
