@@ -28,10 +28,23 @@ type Emploi = {
     title: string
     type: 'Cours' | 'TD' | 'TP'
     salle_id: string
+    description: string
     cours_id: string
     enseignant_id: string
 }
 
+type CalendarEvent = {
+    id: string
+    title: string
+    start: string | Date
+    end: string | Date
+    description?: string
+    backgroundColor?: string
+    type?: string
+    salle_id?: string
+    cours_id?: string
+    enseignant_id?: string
+};
 export default function EmploiDuTempsPage() {
 
 
@@ -64,57 +77,51 @@ export default function EmploiDuTempsPage() {
         const { data, error } = await supabase
             .from('emplois_du_temps')
             .select(`
-            id,
-            date,
-            heure_debut,
-            heure_fin,
-            type,
-            cours (id, nom),
-            salles (id, nom),
-            enseignants (id, nom)
-        `);
-
+                id,
+                date,
+                heure_debut,
+                heure_fin,
+                type,
+                cours (id, nom),
+                salles (id, nom),
+                enseignants (id, nom)
+            `);
 
         if (error) {
-            console.error("❌ Erreur Supabase :", error)
-            return
+            console.error("❌ Erreur Supabase :", error.message, error.details);
+            return;
         }
 
-        console.log("📦 Données brutes Supabase :", data)
+        const events = (data || []).map((e: any) => {
+            const start = moment(`${e.date} ${e.heure_debut}`).toDate();
+            const end = moment(`${e.date} ${e.heure_fin}`).toDate();
 
-        const parsed = data.map((e: any) => {
-            const start = moment(`${e.date} ${e.heure_debut}`).toDate()
-            const end = moment(`${e.date} ${e.heure_fin}`).toDate()
+            const coursNom = e.cours?.nom || 'Cours';
+            const salleNom = e.salles?.nom || 'Salle';
+            const enseignantNom = e.enseignants?.nom || 'Enseignant';
+            const type = e.type || 'Cours';
+
+            let color = '#3788d8';
+            if (type === 'CM' || type === 'Cours') color = '#007bff';
+            else if (type === 'TD') color = '#28a745';
+            else if (type === 'TP') color = '#ffc107';
 
             return {
                 id: e.id,
                 start,
                 end,
-                title: `${e.cours?.nom || ''} | ${e.salle?.nom || ''} | ${e.enseignant?.nom || ''}`,
-                type: e.type,
-                salle_id: e.salle?.id,
-                enseignant_id: e.enseignant?.id,
-                cours_id: e.cours_id,
-            }
-        })
-
-        const events = data.map(event => {
-            let color = '#3788d8'; // Couleur par défaut
-
-            if (event.type === 'CM') color = '#007bff'; // bleu
-            if (event.type === 'TD') color = '#28a745'; // vert
-            if (event.type === 'TP') color = '#ffc107'; // jaune
-
-            return {
-                ...event,
-                title: `[${event.type}] ${event.title}`,
+                title: `[${type}] ${coursNom} - ${enseignantNom}`,
+                description: `Salle : ${salleNom}`,
+                type,
                 backgroundColor: color
             };
         });
 
+        setEvents(events);
+    };
 
-        setEvents(parsed)
-    }
+
+
 
 
 
@@ -259,9 +266,9 @@ export default function EmploiDuTempsPage() {
         }
 
         const backtrack = (index: number): boolean => {
-            if (index === cours.length) return true
+            if (index === cours.length) return true;
 
-            const coursActuel = cours[index]
+            const coursActuel = cours[index];
 
             for (let enseignant of enseignants) {
                 for (let jour of jours) {
@@ -276,19 +283,21 @@ export default function EmploiDuTempsPage() {
                                     heure_fin,
                                     enseignant_id: enseignant.id,
                                     type: coursActuel.type
-                                }
+                                };
 
-                                emplois.push(session)
-                                if (backtrack(index + 1)) return true
-                                emplois.pop()
+                                emplois.push(session);
+                                if (backtrack(index + 1)) return true;
+                                emplois.pop();
                             }
                         }
                     }
                 }
             }
 
-            return false
-        }
+            return false;
+        };
+
+
 
         const success = backtrack(0)
 
@@ -411,7 +420,6 @@ export default function EmploiDuTempsPage() {
     const [currentDate, setCurrentDate] = useState(new Date());
     const DnDCalendar = withDragAndDrop(Calendar)
     const localizer = momentLocalizer(moment)
-
     // ✅ RETURN EN DEHORS DES FONCTIONS
     return (
         <AuthGuard>
@@ -452,23 +460,24 @@ export default function EmploiDuTempsPage() {
                 <div id="print-zone" className="bg-white p-4">
                     <DnDCalendar
                         culture="fr"
-                        startAccessor={(event) => new Date((event as Emploi).start)}
-                        endAccessor={(event) => new Date((event as Emploi).end)}
                         localizer={localizer}
                         events={events}
-                        style={{ height: 600 }}
-                        onDoubleClickEvent={handleDoubleClickEvent}
+                        startAccessor={(event) => new Date((event as Emploi).start)}
+                        endAccessor={(event) => new Date((event as Emploi).end)}
+                        tooltipAccessor={(event) => (event as Emploi).description}
+                        titleAccessor={(event) => (event as Emploi).title}
                         defaultView="week"
                         views={['week']}
                         date={currentDate}
                         defaultDate={currentDate}
-                        onNavigate={(date) => setCurrentDate(date)}
+                        onNavigate={setCurrentDate}
+                        onDoubleClickEvent={handleDoubleClickEvent}
                         step={90}
                         timeslots={1}
                         min={new Date(1970, 1, 1, 8, 0)}
                         max={new Date(1970, 1, 1, 17, 0)}
-                        onEventDrop={onEventDrop}
                         resizable
+                        onEventDrop={onEventDrop}
                         eventPropGetter={(event) => {
                             const e = event as Emploi
                             return {
@@ -476,10 +485,23 @@ export default function EmploiDuTempsPage() {
                                     backgroundColor: getColor(e.type),
                                     color: 'white',
                                     borderRadius: '6px',
-                                    padding: '4px'
+                                    padding: '7px'
                                 }
                             }
                         }}
+                        components={{
+                            event: ({ event }: import('react-big-calendar').EventProps<object>) => {
+                                // Cast event to Emploi to access custom fields
+                                const e = event as Emploi;
+                                return (
+                                    <div>
+                                        <strong>{e.title}</strong>
+                                        <div style={{ fontSize: '0.75rem' }}>{e.description}</div>
+                                    </div>
+                                );
+                            }
+                        }}
+                        style={{ height: 600 }}
 
                         dayLayoutAlgorithm="no-overlap"
                         messages={{
@@ -519,7 +541,7 @@ export default function EmploiDuTempsPage() {
     )
 }
 
-import type { CalendarEvent } from './types'; // adapte selon ton arborescence
+
 
 async function fetchEvents(): Promise<CalendarEvent[]> {
     const { data, error } = await supabase
@@ -542,21 +564,32 @@ async function fetchEvents(): Promise<CalendarEvent[]> {
 
     const events: CalendarEvent[] = (data || []).map((item) => {
         const type = item.type || 'Cours';
-        const coursNom = Array.isArray(item.cours) ? item.cours[0]?.nom || '' : '';
-        const enseignantNom = Array.isArray(item.enseignants) ? item.enseignants[0]?.nom || '' : '';
-        const salleNom = Array.isArray(item.salles) ? item.salles[0]?.nom || '' : '';
+
+        const coursNom = Array.isArray(item.cours)
+            ? item.cours[0]?.nom || 'Cours inconnu'
+            : 'Cours inconnu';
+
+        const enseignantNom = Array.isArray(item.enseignants)
+            ? item.enseignants[0]?.nom || 'Prof inconnu'
+            : 'Prof inconnu';
+
+        const salleNom = Array.isArray(item.salles)
+            ? item.salles[0]?.nom || 'Salle inconnue'
+            : 'Salle inconnue';
+
+        const couleur =
+            type === 'Cours' || type === 'CM' ? '#007bff' : // bleu
+                type === 'TD' ? '#28a745' :                     // vert
+                    type === 'TP' ? '#ffc107' :                     // jaune
+                        '#888';                                         // gris par défaut
 
         return {
-            id: item.id.toString(),
+            id: item.id?.toString() ?? crypto.randomUUID(),
             title: `[${type}] ${coursNom} - ${enseignantNom}`,
             start: `${item.date}T${item.heure_debut}`,
             end: `${item.date}T${item.heure_fin}`,
             description: `Salle: ${salleNom}`,
-            backgroundColor:
-                type === 'CM' ? '#007bff' :
-                    type === 'TD' ? '#28a745' :
-                        type === 'TP' ? '#ffc107' :
-                            '#888'
+            backgroundColor: couleur
         };
     });
 
