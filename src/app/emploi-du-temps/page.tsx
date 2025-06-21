@@ -1,597 +1,333 @@
 'use client'
 
-//import { genererEmploiDuTemps } from '@/src/lib/generation'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/src/lib/supabaseClient'
-import Header from '@/src/components/Header'
-import AuthGuard from '@/src/components/AuthGuard'
+import { genererEmploiDuTemps, Session } from '@/src/lib/generation'
 import moment from 'moment'
 import 'moment/locale/fr'
-//import fetchEmplois from '@/src/app/emploi-du-temps/page'
-import {
-    Calendar,
-    momentLocalizer,
-} from 'react-big-calendar'
-import withDragAndDrop from 'react-big-calendar/lib/addons/dragAndDrop'
+import * as XLSX from 'xlsx'
+import { PDFDownloadLink } from '@react-pdf/renderer'
+import PDFPlanning from '@/src/components/PDFPlanning'
+
+import { Calendar, momentLocalizer } from 'react-big-calendar'
+import withDragAndDrop, { withDragAndDropProps } from 'react-big-calendar/lib/addons/dragAndDrop'
 import 'react-big-calendar/lib/addons/dragAndDrop/styles.css'
 import 'react-big-calendar/lib/css/react-big-calendar.css'
 
-moment.locale('fr')
-moment.updateLocale('fr', { week: { dow: 0 } }) // dimanche début
-
-
-
-type Emploi = {
-    id: string
-    start: Date
-    end: Date
-    title: string
-    type: 'Cours' | 'TD' | 'TP'
-    salle_id: string
-    description: string
-    cours_id: string
-    enseignant_id: string
-}
+moment.locale('fr');
 
 type CalendarEvent = {
-    id: string
-    title: string
-    start: string | Date
-    end: string | Date
-    description?: string
-    backgroundColor?: string
-    type?: string
-    salle_id?: string
-    cours_id?: string
-    enseignant_id?: string
+    id: string;
+    title: string;
+    start: Date;
+    end: Date;
+    resource?: any;
+    type: string;
+    enseignant_id: string;
+    salle_id: string;
 };
+
+const DnDCalendar = withDragAndDrop(Calendar)
+
 export default function EmploiDuTempsPage() {
-
-
-    const [emploisDuTemps, setEmploisDuTemps] = useState<any[]>([])
-    const [generaEvents, setGeneratedEvents] = useState<any[]>([])
-    const [events, setEvents] = useState<CalendarEvent[]>([]);
-    const [loading, setLoading] = useState(false)
+    const [events, setEvents] = useState<CalendarEvent[]>([])
     const [message, setMessage] = useState('')
-    const [startDate, setStartDate] = useState<string>('2024-06-01')
+    const [loading, setLoading] = useState(false)
+    const [pdfData, setPdfData] = useState<any[]>([])
+    const [groupes, setGroupes] = useState<any[]>([])
+    const [selectedGroupe, setSelectedGroupe] = useState<string>('')
 
+    const localizer = momentLocalizer(moment)
 
-    const handleDoubleClickEvent = async (event: any) => {
-        const confirmDelete = confirm(`Supprimer ce créneau : ${event.title} ?`)
-        if (!confirmDelete) return
-
-        const { error } = await supabase
-            .from('emplois_du_temps')
-            .delete()
-            .eq('id', event.id) // ou autre champ identifiant   
-
-        if (error) {
-            alert("Erreur lors de la suppression.")
-        } else {
-            alert("Créneau supprimé ✅")
-            fetchData() // recharge les événements
-        }
+    const fetchGroupes = async () => {
+        const { data } = await supabase.from('groupes').select('*')
+        if (data) setGroupes(data)
     }
 
-    const fetchData = async () => {
-        const { data, error } = await supabase
+    const fetchEvents = async () => {
+        let query = supabase
             .from('emplois_du_temps')
             .select(`
-                id,
-                date,
-                heure_debut,
-                heure_fin,
-                type,
-                cours (id, nom),
-                salles (id, nom),
-                enseignants (id, nom)
-            `);
+                id, date, heure_debut, heure_fin, type,
+                cours:cours_id ( nom ),
+                salles:salle_id ( id, nom ),
+                enseignants:enseignant_id ( id, nom )
+            `)
+
+        // Filtrer par groupe si sélectionné (temporairement désactivé)
+        // if (selectedGroupe) {
+        //     query = query.eq('cours.groupe_id', selectedGroupe)
+        // }
+
+        const { data, error } = await query
 
         if (error) {
-            console.error("❌ Erreur Supabase :", error.message, error.details);
-            return;
+            setMessage('Erreur chargement des événements: ' + error.message)
+            return []
         }
 
-        const events = (data || []).map((e: any) => {
-            const start = moment(`${e.date} ${e.heure_debut}`).toDate();
-            const end = moment(`${e.date} ${e.heure_fin}`).toDate();
+        console.log('=== DEBUG PAGE ===');
+        console.log('Données récupérées de Supabase:', data);
+        console.log('Nombre de créneaux:', data?.length || 0);
 
-            const coursNom = e.cours?.nom || 'Cours';
-            const salleNom = e.salles?.nom || 'Salle';
-            const enseignantNom = e.enseignants?.nom || 'Enseignant';
-            const type = e.type || 'Cours';
-
-            let color = '#3788d8';
-            if (type === 'CM' || type === 'Cours') color = '#007bff';
-            else if (type === 'TD') color = '#28a745';
-            else if (type === 'TP') color = '#ffc107';
-
-            return {
-                id: e.id,
-                start,
-                end,
-                title: `[${type}] ${coursNom} - ${enseignantNom}`,
-                description: `Salle : ${salleNom}`,
-                type,
-                backgroundColor: color
-            };
-        });
-
-        setEvents(events);
-    };
-
-
-
-
-
+        const calendarEvents = data.map((e: any) => ({
+            id: e.id,
+            title: `[${e.type}] ${e.cours.nom} - ${e.enseignants.nom} (${e.salles.nom})`,
+            start: moment(`${e.date}T${e.heure_debut}`).toDate(),
+            end: moment(`${e.date}T${e.heure_fin}`).toDate(),
+            resource: { salle: e.salles.nom },
+            type: e.type,
+            enseignant_id: e.enseignants.id,
+            salle_id: e.salles.id
+        }));
+        setEvents(calendarEvents);
+        setPdfData(data); // Stocker les données pour le PDF
+        console.log('PDF Data stockée:', data);
+    }
 
     useEffect(() => {
-        // fetchData()
-        setEvents([
-            {
-                id: '1',
-                start: new Date('2024-06-17T08:00'),
-                end: new Date('2024-06-17T09:30'),
-                title: 'Test manuel',
-                type: 'Cours',
-                salle_id: 'salle-test',
-                cours_id: 'cour-test',
-                enseignant_id: 'ens-test'
-            }
-        ])
-    }, [])
+        fetchGroupes()
+        fetchEvents()
+    }, [selectedGroupe])
 
-    const getColor = (type: string) => {
-        switch (type) {
-            case 'Cours': return 'orange'
-            case 'TD': return 'blue'
-            case 'TP': return 'green'
-            default: return 'gray'
+    const handleExportExcel = async () => {
+        if (events.length === 0) {
+            setMessage('Aucun emploi du temps à exporter')
+            return
         }
-    }
 
-    const moveEvent = async ({ event, start, end }: any) => {
-        const date = moment(start).format('YYYY-MM-DD')
-        const heure_debut = moment(start).format('HH:mm')
-        const heure_fin = moment(end).format('HH:mm')
-
-        const { error } = await supabase
-            .from('emplois_du_temps')
-            .update({ date, heure_debut, heure_fin })
-            .eq('id', event.id)
-
-        if (!error) {
-            const updated = events.map(ev =>
-                ev.id === event.id ? { ...ev, start, end } : ev
-            )
-            setEvents(updated)
-        }
-    }
-
-    const generatePlanning = async () => {
-        const { data: emploisExistantsRaw } = await supabase
-            .from('emplois_du_temps')
-            .select('* ,  enseignants:enseignant_id ( nom ) ')
-            .gte('date', moment(startDate).format('YYYY-MM-DD'))
-            .lte('date', moment(startDate).add(4, 'days').format('YYYY-MM-DD'))
-
-        const emploisExistants = emploisExistantsRaw ?? []
-
-        if (emploisExistants.length > 0) {
-            const confirmDelete = confirm("❌ Un planning existe déjà pour cette période. Voulez-vous le supprimer et générer un nouveau planning ?");
-            if (!confirmDelete) return;
-
-            const { error: deleteError } = await supabase
+        try {
+            // Récupérer les données complètes pour l'export
+            const { data, error } = await supabase
                 .from('emplois_du_temps')
-                .delete()
-                .gte('date', moment(startDate).format('YYYY-MM-DD'))
-                .lte('date', moment(startDate).add(4, 'days').format('YYYY-MM-DD'))
+                .select(`
+                    date, heure_debut, heure_fin, type,
+                    cours:cours_id ( nom ),
+                    salles:salle_id ( nom ),
+                    enseignants:enseignant_id ( nom )
+                `)
 
-            if (deleteError) {
-                alert("Erreur lors de la suppression de l'ancien planning : " + deleteError.message)
+            if (error) {
+                setMessage('Erreur lors de la récupération des données: ' + error.message)
                 return
             }
-        }
 
-        if (!confirm("Voulez-vous vraiment générer un nouveau planning ?")) return;
+            // Préparer les données pour l'export
+            const exportData = data.map((item: any) => ({
+                'Date': item.date,
+                'Heure début': item.heure_debut,
+                'Heure fin': item.heure_fin,
+                'Type': item.type,
+                'Cours': item.cours.nom,
+                'Enseignant': item.enseignants.nom,
+                'Salle': item.salles.nom
+            }))
+
+            // Créer le workbook et worksheet
+            const ws = XLSX.utils.json_to_sheet(exportData)
+            const wb = XLSX.utils.book_new()
+            XLSX.utils.book_append_sheet(wb, ws, 'Emploi du temps')
+
+            // Générer le nom du fichier avec la date actuelle
+            const fileName = `emploi_du_temps_${moment().format('YYYY-MM-DD_HH-mm')}.xlsx`
+
+            // Télécharger le fichier
+            XLSX.writeFile(wb, fileName)
+            setMessage('Emploi du temps exporté avec succès !')
+
+        } catch (error) {
+            setMessage('Erreur lors de l\'export: ' + error)
+        }
+    }
+
+    const handleGenerate = async () => {
+        if (!confirm("Voulez-vous supprimer le planning actuel et en générer un nouveau ?")) return;
 
         setLoading(true)
         setMessage('Génération en cours...')
 
-        const { data: cours } = await supabase.from('cours').select('*')
-        const { data: salles } = await supabase.from('salles').select('*')
-        const { data: enseignants } = await supabase.from('enseignants').select('*')
-
-        if (!cours || !salles || !enseignants) {
-            setMessage("Erreur lors de la récupération des données.")
+        const { error: deleteError } = await supabase.from('emplois_du_temps').delete().gt('id', 0)
+        if (deleteError) {
+            setMessage("Erreur lors de la suppression de l'ancien planning: " + deleteError.message)
             setLoading(false)
             return
         }
 
-        const jours = Array.from({ length: 5 }).map((_, i) =>
-            moment(startDate).add(i, 'days').format('YYYY-MM-DD')
-        )
+        const sessions = await genererEmploiDuTemps(setMessage)
 
-        const creneaux = [
-            { heure_debut: '08:00', heure_fin: '09:30' },
-            { heure_debut: '09:30', heure_fin: '11:00' },
-            { heure_debut: '11:00', heure_fin: '12:30' },
-            { heure_debut: '12:30', heure_fin: '14:00' },
-            { heure_debut: '14:00', heure_fin: '15:30' },
-            { heure_debut: '15:30', heure_fin: '17:00' }
-        ]
-
-        type Session = {
-            cours_id: string
-            salle_id: string
-            date: string
-            heure_debut: string
-            heure_fin: string
-            enseignant_id: string
-            type: 'Cours' | 'TD' | 'TP'
+        if (sessions.length === 0) {
+            setMessage('Impossible de générer un emploi du temps.')
+            setLoading(false)
+            return
         }
+        
+        const sessionsToInsert = sessions.map(s => ({
+            cours_id: s.cours_id,
+            salle_id: s.salle_id,
+            enseignant_id: s.enseignant_id,
+            date: s.date,
+            heure_debut: s.heure_debut,
+            heure_fin: s.heure_fin,
+            type: s.type,
+        }))
 
-        const emplois: Session[] = []
+        const { error: insertError } = await supabase.from('emplois_du_temps').insert(sessionsToInsert)
 
-        const chevauche = (a: { heure_debut: string, heure_fin: string }, b: { heure_debut: string, heure_fin: string }) =>
-            a.heure_debut < b.heure_fin && b.heure_debut < a.heure_fin
-
-        const estValide = (
-            salleId: string,
-            enseignantId: string,
-            date: string,
-            heure_debut: string,
-            heure_fin: string,
-            coursId: string
-        ) => {
-            const nouvelleSession = { date, heure_debut, heure_fin }
-
-            const conflit = (session: any) =>
-                session.date === date && (
-                    (session.salle_id === salleId && chevauche(session, nouvelleSession)) ||
-                    (session.enseignant_id === enseignantId && chevauche(session, nouvelleSession)) ||
-                    (session.cours_id === coursId && chevauche(session, nouvelleSession))
-                )
-
-            const dejaPlanifie = (session: any) =>
-                session.date === date &&
-                session.cours_id === coursId &&
-                session.heure_debut === heure_debut &&
-                session.heure_fin === heure_fin
-
-            return !emplois.some(conflit)
-                && !emploisExistants.some(conflit)
-                && !emplois.some(dejaPlanifie)
-                && !emploisExistants.some(dejaPlanifie)
-        }
-
-        const backtrack = (index: number): boolean => {
-            if (index === cours.length) return true;
-
-            const coursActuel = cours[index];
-
-            for (let enseignant of enseignants) {
-                for (let jour of jours) {
-                    for (let { heure_debut, heure_fin } of creneaux) {
-                        for (let salle of salles) {
-                            if (estValide(salle.id, enseignant.id, jour, heure_debut, heure_fin, coursActuel.id)) {
-                                const session: Session = {
-                                    cours_id: coursActuel.id,
-                                    salle_id: salle.id,
-                                    date: jour,
-                                    heure_debut,
-                                    heure_fin,
-                                    enseignant_id: enseignant.id,
-                                    type: coursActuel.type
-                                };
-
-                                emplois.push(session);
-                                if (backtrack(index + 1)) return true;
-                                emplois.pop();
-                            }
-                        }
-                    }
-                }
-            }
-
-            return false;
-        };
-
-
-
-        const success = backtrack(0)
-
-        if (success) {
-            const { error } = await supabase.from('emplois_du_temps').insert(emplois)
-            setMessage(error ? "Erreur d'insertion." : "Planning généré avec succès 🎉")
-            fetchData()
+        if (insertError) {
+            setMessage("Erreur lors de l'insertion du nouveau planning: " + insertError.message)
         } else {
-            setMessage("❌ Impossible de générer un planning valide.")
+            setMessage('Planning généré avec succès !')
+            await fetchEvents()
         }
-
         setLoading(false)
     }
 
+    const onEventDrop: withDragAndDropProps['onEventDrop'] = async ({ event, start, end }) => {
+        const draggedEvent = event as CalendarEvent;
 
+        const hasConflict = events
+            .filter(e => e.id !== draggedEvent.id)
+            .some(e => {
+                const isTimeConflict = start < e.end && end > e.start;
+                if (!isTimeConflict) return false;
 
+                const isSameTeacher = e.enseignant_id === draggedEvent.enseignant_id;
+                const isSameRoom = e.salle_id === draggedEvent.salle_id;
 
-    const generateEmplois = async (): Promise<{ success: boolean }> => {
-        // Appelle une fonction Supabase, API ou fait une génération locale ici
-        const { error } = await supabase.rpc('generer_emplois_du_temps') // Exemple de fonction Supabase
-        return { success: !error }
-    }
+                return isSameTeacher || isSameRoom;
+            });
 
-    const handleEventClick = async (event: any) => {
-        const confirmDelete = confirm(`Supprimer le cours "${event.title}" ?`)
-        if (!confirmDelete) return
-
-        const { error } = await supabase.from('emplois_du_temps').delete().eq('id', event.id)
-
-        if (error) {
-            alert('❌ Erreur lors de la suppression : ' + error.message)
-        } else {
-            const updated = events.filter(e => e.id !== event.id)
-            setEvents(updated)
-
-            alert('✅ Séance supprimée')
+        if (hasConflict) {
+            alert("Conflit détecté ! L'enseignant ou la salle est déjà occupé sur ce créneau.");
+            return;
         }
-    }
-
-
-
-    const handleGenererEmplois = async () => {
-        const result = await generateEmplois()
-
-        if (result.success) {
-            alert("✅ Créneaux générés avec succès")
-
-            // Rechargement de la table emplois_du_temps
-            const { data, error } = await supabase
-                .from('emplois_du_temps')
-                .select(`
-              id,
-              date,
-              heure_debut,
-              heure_fin,
-              type,
-              cours: cours_id (id, nom),
-              salles: salle_id (id, nom)
-            `)
-
-            if (error) {
-                alert("❌ Erreur lors du rechargement des emplois : " + error.message)
-                return
-            }
-
-            // Traitement des données pour la table
-            const emplois = data.map((e: any) => ({
-                id: e.id,
-                date: e.date,
-                heure_debut: e.heure_debut,
-                heure_fin: e.heure_fin,
-                cours_nom: e.cours?.nom || '',
-                salle_nom: e.salle?.nom || ''
-            }))
-
-            // Met à jour l'état qui alimente la table HTML
-            setEmploisDuTemps(emplois)
-        } else {
-            alert("❌ Erreur lors de la génération des créneaux")
-        }
-    }
-
-
-    const exportPDF = async () => {
-        if (typeof window !== 'undefined') {
-            const html2pdf = (await import('html2pdf.js')).default;
-            const element = document.getElementById('print-zone');
-            if (element) {
-                html2pdf().from(element).save();
-            } else {
-                setMessage("Élément PDF non trouvé")
-            }
-        }
-    }
-    const onEventDrop = async ({ event, start, end }: any) => {
-        const newDate = moment(start).format('YYYY-MM-DD')
-        const newStart = moment(start).format('HH:mm')
-        const newEnd = moment(end).format('HH:mm')
 
         const { error } = await supabase
             .from('emplois_du_temps')
             .update({
-                date: newDate,
-                heure_debut: newStart,
-                heure_fin: newEnd,
+                date: moment(start).format('YYYY-MM-DD'),
+                heure_debut: moment(start).format('HH:mm'),
+                heure_fin: moment(end).format('HH:mm'),
             })
-            .eq('id', event.id)
+            .eq('id', draggedEvent.id)
 
-        if (!error) {
-            setEvents(prev =>
-                prev.map(e =>
-                    e.id === event.id ? { ...e, start, end } : e
-                )
-            )
+        if (error) {
+            alert("Erreur lors de la mise à jour.")
+            return;
+        }
+        await fetchEvents();
+    };
+
+    const handleDoubleClickEvent = async (event: object) => {
+        const calEvent = event as CalendarEvent;
+        if (!confirm(`Supprimer le créneau "${calEvent.title}" ?`)) return;
+
+        const { error } = await supabase.from('emplois_du_temps').delete().eq('id', calEvent.id);
+
+        if (error) {
+            alert("Erreur lors de la suppression : " + error.message);
         } else {
-            alert("Erreur lors du déplacement du créneau.")
+            setEvents(prev => prev.filter(e => e.id !== calEvent.id));
         }
     }
 
-    const [currentDate, setCurrentDate] = useState(new Date());
-    const DnDCalendar = withDragAndDrop(Calendar)
-    const localizer = momentLocalizer(moment)
-    // ✅ RETURN EN DEHORS DES FONCTIONS
-    return (
-        <AuthGuard>
-            <div className="p-6 max-w-6xl mx-auto">
-                <Header />
-                <h1 className="text-2xl font-bold mb-6">Emploi du temps (glisser-déposer)</h1>
-
-                <div className="flex flex-wrap items-center gap-4 mb-4">
-                    <label className="text-sm">Date de début de semaine :</label>
-                    <input
-                        type="date"
-                        className="border rounded px-2 py-1"
-                        value={startDate}
-                        onChange={e => setStartDate(e.target.value)}
-                    />
-
-                    <button
-                        onClick={generatePlanning}
-                        disabled={loading}
-                        className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700"
-                    >
-                        {loading ? 'Génération...' : 'Générer automatiquement'}
-                    </button>
-
-
-
-
-                    <button
-                        onClick={exportPDF}
-                        className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
-                    >
-                        Exporter en PDF
-                    </button>
-                </div>
-
-                <p className="text-sm text-gray-700 mb-4">{message}</p>
-
-                <div id="print-zone" className="bg-white p-4">
-                    <DnDCalendar
-                        culture="fr"
-                        localizer={localizer}
-                        events={events}
-                        startAccessor={(event) => new Date((event as Emploi).start)}
-                        endAccessor={(event) => new Date((event as Emploi).end)}
-                        tooltipAccessor={(event) => (event as Emploi).description}
-                        titleAccessor={(event) => (event as Emploi).title}
-                        defaultView="week"
-                        views={['week']}
-                        date={currentDate}
-                        defaultDate={currentDate}
-                        onNavigate={setCurrentDate}
-                        onDoubleClickEvent={handleDoubleClickEvent}
-                        step={90}
-                        timeslots={1}
-                        min={new Date(1970, 1, 1, 8, 0)}
-                        max={new Date(1970, 1, 1, 17, 0)}
-                        resizable
-                        onEventDrop={onEventDrop}
-                        eventPropGetter={(event) => {
-                            const e = event as Emploi
-                            return {
-                                style: {
-                                    backgroundColor: getColor(e.type),
-                                    color: 'white',
-                                    borderRadius: '6px',
-                                    padding: '7px'
-                                }
-                            }
-                        }}
-                        components={{
-                            event: ({ event }: import('react-big-calendar').EventProps<object>) => {
-                                // Cast event to Emploi to access custom fields
-                                const e = event as Emploi;
-                                return (
-                                    <div>
-                                        <strong>{e.title}</strong>
-                                        <div style={{ fontSize: '0.75rem' }}>{e.description}</div>
-                                    </div>
-                                );
-                            }
-                        }}
-                        style={{ height: 600 }}
-
-                        dayLayoutAlgorithm="no-overlap"
-                        messages={{
-                            today: "Aujourd'hui",
-                            previous: 'Précédent',
-                            next: 'Suivant',
-                            month: 'Mois',
-                            week: 'Semaine',
-                            day: 'Jour',
-                            agenda: 'Agenda',
-                            noEventsInRange: 'Aucun cours prévu'
-                        }}
-                        formats={{
-                            timeGutterFormat: (date, _, localizer) => {
-                                const start = moment(date)
-                                const end = moment(date).add(1.5, 'hours')
-                                return `${start.format('HH:mm')} - ${end.format('HH:mm')}`
-                            }
-                        }}
-                    />
-                </div>
-
-                <style jsx global>{`
-                    .rbc-header:nth-child(6),
-                    .rbc-header:nth-child(7),
-                    .rbc-day-bg:nth-child(6),
-                    .rbc-day-bg:nth-child(7),
-                    .rbc-day-slot:nth-child(6),
-                    .rbc-day-slot:nth-child(7),
-                    .rbc-time-content > * > .rbc-day-slot:nth-child(6),
-                    .rbc-time-content > * > .rbc-day-slot:nth-child(7) {
-                        display: none !important;
-                    }
-                `}</style>
-            </div>
-        </AuthGuard>
-    )
-}
-
-
-
-async function fetchEvents(): Promise<CalendarEvent[]> {
-    const { data, error } = await supabase
-        .from('emplois_du_temps')
-        .select(`
-      id,
-      date,
-      heure_debut,
-      heure_fin,
-      type,
-      cours (id, nom),
-      salles (id, nom),
-      enseignants (id, nom)
-    `);
-
-    if (error) {
-        console.error('Erreur lors du chargement des événements:', error);
-        return [];
-    }
-
-    const events: CalendarEvent[] = (data || []).map((item) => {
-        const type = item.type || 'Cours';
-
-        const coursNom = Array.isArray(item.cours)
-            ? item.cours[0]?.nom || 'Cours inconnu'
-            : 'Cours inconnu';
-
-        const enseignantNom = Array.isArray(item.enseignants)
-            ? item.enseignants[0]?.nom || 'Prof inconnu'
-            : 'Prof inconnu';
-
-        const salleNom = Array.isArray(item.salles)
-            ? item.salles[0]?.nom || 'Salle inconnue'
-            : 'Salle inconnue';
-
-        const couleur =
-            type === 'Cours' || type === 'CM' ? '#007bff' : // bleu
-                type === 'TD' ? '#28a745' :                     // vert
-                    type === 'TP' ? '#ffc107' :                     // jaune
-                        '#888';                                         // gris par défaut
+    const eventStyleGetter = (event: object) => {
+        const calEvent = event as CalendarEvent;
+        let backgroundColor = '#3174ad'; // Bleu pour "Cours"
+        if (calEvent.type === 'TD') backgroundColor = '#5cb85c'; // Vert
+        if (calEvent.type === 'TP') backgroundColor = '#f0ad4e'; // Jaune
 
         return {
-            id: item.id?.toString() ?? crypto.randomUUID(),
-            title: `[${type}] ${coursNom} - ${enseignantNom}`,
-            start: `${item.date}T${item.heure_debut}`,
-            end: `${item.date}T${item.heure_fin}`,
-            description: `Salle: ${salleNom}`,
-            backgroundColor: couleur
+            style: { backgroundColor, color: 'white', borderRadius: '5px', border: 'none' }
         };
-    });
+    };
 
-    return events;
+    return (
+        <div className="p-6 max-w-6xl mx-auto">
+            <h1 className="text-2xl font-bold mb-6">Emploi du temps</h1>
+
+            <div className="flex gap-4 mb-4">
+                <button
+                    onClick={handleGenerate}
+                    disabled={loading}
+                    className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700"
+                >
+                    {loading ? 'Génération...' : 'Générer un nouveau planning'}
+                </button>
+
+                <select
+                    value={selectedGroupe}
+                    onChange={(e) => setSelectedGroupe(e.target.value)}
+                    className="border p-2 rounded"
+                >
+                    <option value="">Tous les groupes</option>
+                    {groupes.map(groupe => (
+                        <option key={groupe.id} value={groupe.id}>
+                            {groupe.nom} {groupe.niveau && `(${groupe.niveau})`}
+                        </option>
+                    ))}
+                </select>
+
+                <button
+                    onClick={handleExportExcel}
+                    className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+                >
+                    📊 Exporter Excel
+                </button>
+
+                <button
+                    onClick={() => {
+                        console.log('=== DEBUG PDF BUTTON CLICK ===');
+                        console.log('PDF Data length:', pdfData.length);
+                        console.log('PDF Data:', pdfData);
+                    }}
+                    className="bg-yellow-600 text-white px-4 py-2 rounded hover:bg-yellow-700"
+                >
+                    🔍 Debug PDF Data
+                </button>
+
+                {pdfData.length > 0 && (
+                    <PDFDownloadLink
+                        document={<PDFPlanning data={pdfData} selectedGroupe={selectedGroupe} groupes={groupes} />}
+                        fileName={`planning_${selectedGroupe ? groupes.find(g => g.id === selectedGroupe)?.nom || 'groupe' : 'tous'}_${moment().format('YYYY-MM-DD')}.pdf`}
+                        className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+                    >
+                        {({ blob, url, loading, error }) =>
+                            loading ? 'Génération PDF...' : '📄 Exporter PDF'
+                        }
+                    </PDFDownloadLink>
+                )}
+            </div>
+
+            {message && <p className="text-sm text-gray-700 mb-4">{message}</p>}
+
+            <DnDCalendar
+                localizer={localizer}
+                events={events}
+                onEventDrop={onEventDrop}
+                onDoubleClickEvent={handleDoubleClickEvent}
+                eventPropGetter={eventStyleGetter}
+                resizable
+                startAccessor={(event) => (event as CalendarEvent).start}
+                endAccessor={(event) => (event as CalendarEvent).end}
+                style={{ height: 600 }}
+                defaultView="week"
+                views={['day', 'week', 'month']}
+                min={new Date(1970, 1, 1, 8, 0)}
+                max={new Date(1970, 1, 1, 17, 0)}
+                step={30}
+                timeslots={3}
+                messages={{
+                    today: "Aujourd'hui",
+                    previous: 'Précédent',
+                    next: 'Suivant',
+                    month: 'Mois',
+                    week: 'Semaine',
+                    day: 'Jour',
+                    agenda: 'Agenda',
+                    noEventsInRange: 'Aucun cours prévu dans cette période.'
+                }}
+            />
+        </div>
+    )
 }

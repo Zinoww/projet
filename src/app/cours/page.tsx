@@ -12,7 +12,7 @@ type Cours = {
   enseignant_id: string
   enseignant_nom: string
   type: string
-
+  groupe_id?: string
 }
 
 type Enseignant = {
@@ -29,8 +29,6 @@ export default function CoursPage() {
     nom: '',
     enseignant_id: '',
     type: '',
-    niveau_id: '',
-    specialite_id: '',
     groupe_id: '',
   });
 
@@ -40,11 +38,7 @@ export default function CoursPage() {
       const { data: enseignantsData } = await supabase.from('enseignants').select('id, nom');
       const { data: coursData } = await supabase
         .from('cours')
-        .select('id, nom, type, enseignant_id, niveau_id, specialite_id, groupe_id, enseignants (nom)');
-
-      const { data: niveauxData } = await supabase.from('niveaux').select('id, nom');
-      const { data: specialitesData } = await supabase.from('specialites').select('id, nom, niveau_id');
-      const { data: groupesData } = await supabase.from('groupes').select('id, nom, specialite_id');
+        .select('id, nom, type, enseignant_id, enseignants (nom)');
 
       if (enseignantsData) setEnseignants(enseignantsData);
 
@@ -55,9 +49,6 @@ export default function CoursPage() {
           enseignant_id: c.enseignant_id,
           enseignant_nom: c.enseignants?.nom || '',
           type: c.type || '',
-          niveau_id: c.niveau_id,
-          specialite_id: c.specialite_id,
-          groupe_id: c.groupe_id,
         }));
         setCours(parsed);
       }
@@ -81,12 +72,10 @@ export default function CoursPage() {
   const handleEdit = (cours: Cours) => {
     setEditId(cours.id)
     setForm({
-      nom: '',
-      enseignant_id: '',
-      type: '',
-      niveau_id: '',
-      specialite_id: '',
-      groupe_id: '',
+      nom: cours.nom,
+      enseignant_id: cours.enseignant_id,
+      type: cours.type,
+      groupe_id: cours.groupe_id || '',
     });
 
   }
@@ -98,8 +87,6 @@ export default function CoursPage() {
       nom: form.nom,
       enseignant_id: form.enseignant_id,
       type: form.type,
-      niveau_id: form.niveau_id,
-      specialite_id: form.specialite_id,
       groupe_id: form.groupe_id,
     };
 
@@ -121,7 +108,7 @@ export default function CoursPage() {
           )
         );
         setEditId(null);
-        setForm({ nom: '', enseignant_id: '', type: '', niveau_id: '', specialite_id: '', groupe_id: '' });
+        setForm({ nom: '', enseignant_id: '', type: '', groupe_id: '' });
       }
     } else {
       const { data: existingCours, error: checkError } = await supabase
@@ -150,11 +137,11 @@ export default function CoursPage() {
           enseignant_id: data[0].enseignant_id,
           enseignant_nom: enseignants.find(e => e.id === form.enseignant_id)?.nom || '',
           type: data[0].type,
-
+          groupe_id: data[0].groupe_id,
         };
 
         setCours(prev => [...prev, nouveauCours]);
-        setForm({ nom: '', enseignant_id: '', type: '', niveau_id: '', specialite_id: '', groupe_id: '' });
+        setForm({ nom: '', enseignant_id: '', type: '', groupe_id: '' });
       }
     }
   };
@@ -264,9 +251,6 @@ export default function CoursPage() {
           enseignant_id: c.enseignant_id,
           enseignant_nom: c.enseignants?.nom || '',
           type: c.type || '',
-          niveau_id: c.niveau_id || '',
-          specialite_id: c.specialite_id || '',
-          groupe_id: c.groupe_id || '',
         }))
         setCours(parsed)
       }
@@ -282,7 +266,7 @@ export default function CoursPage() {
         onClick={() => router.push('/')}
         className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
       >
-        ⬅️ Retour à l’accueil
+        ⬅️ Retour à l'accueil
       </button>
       <form onSubmit={handleSubmit} className="space-y-4 mb-8">
         <label className="block text-sm font-medium text-gray-700 mb-1">Importer un fichier Excel (.xlsx)</label>
