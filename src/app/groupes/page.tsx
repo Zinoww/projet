@@ -100,7 +100,9 @@ export default function GroupesPage() {
         <tbody>
           {groupes.map(g => (
             <tr key={g.id} className="text-center">
-              <td className="border px-2 py-1">{g.nom}</td>
+              <td className="border px-2 py-1">
+                {g.nom} {g.niveau && `(${g.niveau})`} {g.specialite && `(${g.specialite})`}
+              </td>
               <td className="border px-2 py-1">{g.niveau || '-'}</td>
               <td className="border px-2 py-1">{g.specialite || '-'}</td>
               <td className="border px-2 py-1 space-x-2">

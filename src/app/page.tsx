@@ -17,6 +17,7 @@ export default function HomePage() {
                     <Card title="Cours" href="/cours" />
                     <Card title="Salles" href="/salles" />
                     <Card title="Enseignants" href="/enseignants" />
+                    <Card title="Groupes" href="/groupes" />
                     <Card title="Emploi du temps" href="/emploi-du-temps" />
                     <Card title="Calendrier" href="/calendrier" />
 

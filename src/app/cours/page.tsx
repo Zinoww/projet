@@ -12,7 +12,9 @@ type Cours = {
   enseignant_id: string
   enseignant_nom: string
   type: string
+  niveau: string
   groupe_id?: string
+  specialite?: string
 }
 
 type Enseignant = {
@@ -20,27 +22,46 @@ type Enseignant = {
   nom: string
 }
 
+type Groupe = {
+  id: string
+  nom: string
+  niveau?: string
+  specialite?: string
+}
+
 export default function CoursPage() {
   const [cours, setCours] = useState<Cours[]>([])
   const [enseignants, setEnseignants] = useState<Enseignant[]>([])
+  const [groupes, setGroupes] = useState<Groupe[]>([])
   const [editId, setEditId] = useState<string | null>(null)
   const router = useRouter()
-  const [form, setForm] = useState({
+  const [formData, setFormData] = useState({
     nom: '',
+    type: 'CM',
+    duree: 1.5,
+    niveau: 'L1',
     enseignant_id: '',
-    type: '',
-    groupe_id: '',
+    salle_id: '',
+    groupe_id: ''
   });
 
 
   useEffect(() => {
     const fetchData = async () => {
-      const { data: enseignantsData } = await supabase.from('enseignants').select('id, nom');
       const { data: coursData } = await supabase
         .from('cours')
-        .select('id, nom, type, enseignant_id, enseignants (nom)');
+        .select('id, nom, type, niveau, enseignant_id, groupe_id, enseignants (nom)')
 
-      if (enseignantsData) setEnseignants(enseignantsData);
+      const { data: enseignantsData } = await supabase
+        .from('enseignants')
+        .select('id, nom')
+
+      const { data: groupesData } = await supabase
+        .from('groupes')
+        .select('id, nom, niveau, specialite')
+
+      console.log('=== DEBUG GROUPES ===');
+      console.log('Groupes récupérés:', groupesData);
 
       if (coursData) {
         const parsed = coursData.map((c: any) => ({
@@ -49,8 +70,18 @@ export default function CoursPage() {
           enseignant_id: c.enseignant_id,
           enseignant_nom: c.enseignants?.nom || '',
           type: c.type || '',
-        }));
-        setCours(parsed);
+          niveau: c.niveau || 'L1',
+          groupe_id: c.groupe_id,
+        }))
+        setCours(parsed)
+      }
+
+      if (enseignantsData) {
+        setEnseignants(enseignantsData)
+      }
+
+      if (groupesData) {
+        setGroupes(groupesData)
       }
     };
 
@@ -71,23 +102,26 @@ export default function CoursPage() {
 
   const handleEdit = (cours: Cours) => {
     setEditId(cours.id)
-    setForm({
+    setFormData({
       nom: cours.nom,
-      enseignant_id: cours.enseignant_id,
       type: cours.type,
-      groupe_id: cours.groupe_id || '',
+      duree: 1.5,
+      niveau: cours.niveau,
+      enseignant_id: cours.enseignant_id,
+      salle_id: '',
+      groupe_id: cours.groupe_id || ''
     });
-
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     const payload = {
-      nom: form.nom,
-      enseignant_id: form.enseignant_id,
-      type: form.type,
-      groupe_id: form.groupe_id,
+      nom: formData.nom,
+      enseignant_id: formData.enseignant_id,
+      type: formData.type,
+      niveau: formData.niveau,
+      groupe_id: formData.groupe_id,
     };
 
     if (editId) {
@@ -102,22 +136,23 @@ export default function CoursPage() {
               ? {
                 ...c,
                 ...payload,
-                enseignant_nom: enseignants.find(e => e.id === form.enseignant_id)?.nom || '',
+                niveau: formData.niveau,
+                enseignant_nom: enseignants.find(e => e.id === formData.enseignant_id)?.nom || '',
               }
               : c
           )
         );
         setEditId(null);
-        setForm({ nom: '', enseignant_id: '', type: '', groupe_id: '' });
+        setFormData({ nom: '', type: 'CM', duree: 1.5, niveau: 'L1', enseignant_id: '', salle_id: '', groupe_id: '' });
       }
     } else {
       const { data: existingCours, error: checkError } = await supabase
         .from('cours')
         .select('id')
-        .eq('nom', form.nom);
+        .eq('nom', formData.nom);
 
       if (checkError) {
-        alert('Erreur lors de la vérification : ' + checkError.message);
+        console.error('Erreur lors de la vérification:', checkError);
         return;
       }
 
@@ -126,22 +161,26 @@ export default function CoursPage() {
         return;
       }
 
-      const { data, error } = await supabase.from('cours').insert([payload]).select();
+      const { data, error } = await supabase
+        .from('cours')
+        .insert([payload])
+        .select();
 
       if (error) {
-        alert('Erreur : ' + error.message);
-      } else if (data && data.length > 0) {
+        console.error('Erreur lors de l\'ajout:', error);
+      } else {
         const nouveauCours: Cours = {
           id: data[0].id,
           nom: data[0].nom,
           enseignant_id: data[0].enseignant_id,
-          enseignant_nom: enseignants.find(e => e.id === form.enseignant_id)?.nom || '',
+          enseignant_nom: enseignants.find(e => e.id === formData.enseignant_id)?.nom || '',
           type: data[0].type,
+          niveau: data[0].niveau || formData.niveau,
           groupe_id: data[0].groupe_id,
         };
 
         setCours(prev => [...prev, nouveauCours]);
-        setForm({ nom: '', enseignant_id: '', type: '', groupe_id: '' });
+        setFormData({ nom: '', type: 'CM', duree: 1.5, niveau: 'L1', enseignant_id: '', salle_id: '', groupe_id: '' });
       }
     }
   };
@@ -251,6 +290,7 @@ export default function CoursPage() {
           enseignant_id: c.enseignant_id,
           enseignant_nom: c.enseignants?.nom || '',
           type: c.type || '',
+          niveau: c.niveau || 'L1',
         }))
         setCours(parsed)
       }
@@ -258,6 +298,88 @@ export default function CoursPage() {
 
     reader.readAsArrayBuffer(file)
   }
+
+  const handleImportTemplate = async (niveau: string, specialite: string) => {
+    if (!confirm(`Importer les cours template pour ${niveau} - ${specialite} ?`)) return;
+
+    let templates: Array<{ nom: string; type: string; niveau: string }> = [];
+    
+    if (niveau === 'L1' && specialite === 'Informatique') {
+      templates = [
+        { nom: 'Programmation Python', type: 'CM', niveau: 'L1' },
+        { nom: 'Mathématiques', type: 'CM', niveau: 'L1' },
+        { nom: 'Anglais', type: 'CM', niveau: 'L1' },
+        { nom: 'Algorithmes', type: 'TD', niveau: 'L1' },
+        { nom: 'Base de données', type: 'TP', niveau: 'L1' }
+      ];
+    } else if (niveau === 'L1' && specialite === 'Économie') {
+      templates = [
+        { nom: 'Microéconomie', type: 'CM', niveau: 'L1' },
+        { nom: 'Macroéconomie', type: 'CM', niveau: 'L1' },
+        { nom: 'Mathématiques', type: 'CM', niveau: 'L1' },
+        { nom: 'Statistiques', type: 'TD', niveau: 'L1' },
+        { nom: 'Anglais', type: 'CM', niveau: 'L1' }
+      ];
+    } else if (niveau === 'L2' && specialite === 'Informatique') {
+      templates = [
+        { nom: 'Base de données avancées', type: 'CM', niveau: 'L2' },
+        { nom: 'Algorithmes avancés', type: 'CM', niveau: 'L2' },
+        { nom: 'Réseaux', type: 'CM', niveau: 'L2' },
+        { nom: 'Programmation web', type: 'TP', niveau: 'L2' },
+        { nom: 'Anglais technique', type: 'CM', niveau: 'L2' }
+      ];
+    } else if (niveau === 'L2' && specialite === 'Économie') {
+      templates = [
+        { nom: 'Économétrie', type: 'CM', niveau: 'L2' },
+        { nom: 'Finance', type: 'CM', niveau: 'L2' },
+        { nom: 'Marketing', type: 'CM', niveau: 'L2' },
+        { nom: 'Statistiques avancées', type: 'TD', niveau: 'L2' },
+        { nom: 'Anglais des affaires', type: 'CM', niveau: 'L2' }
+      ];
+    }
+    
+    for (const template of templates) {
+      // Vérifier si le cours existe déjà
+      const { data: existing } = await supabase
+        .from('cours')
+        .select('id')
+        .eq('nom', template.nom)
+        .eq('niveau', template.niveau);
+
+      if (!existing || existing.length === 0) {
+        // Créer le cours
+        await supabase
+          .from('cours')
+          .insert([{
+            nom: template.nom,
+            type: template.type,
+            niveau: template.niveau,
+            enseignant_id: '', // À assigner manuellement
+            groupe_id: '' // À assigner manuellement
+          }]);
+      }
+    }
+
+    // Recharger les données
+    const { data: coursData } = await supabase
+      .from('cours')
+      .select('id, nom, type, niveau, enseignant_id, groupe_id, enseignants (nom)')
+
+    if (coursData) {
+      const parsed = coursData.map((c: any) => ({
+        id: c.id,
+        nom: c.nom,
+        enseignant_id: c.enseignant_id,
+        enseignant_nom: c.enseignants?.nom || '',
+        type: c.type || '',
+        niveau: c.niveau || 'L1',
+        groupe_id: c.groupe_id,
+      }))
+      setCours(parsed)
+    }
+    
+    alert(`Template ${niveau} - ${specialite} importé avec succès !`);
+  };
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
@@ -276,16 +398,15 @@ export default function CoursPage() {
           type="text"
           placeholder="Nom du cours"
           className="w-full border p-2 rounded"
-          value={form.nom}
-          onChange={e => setForm({ ...form, nom: e.target.value })}
+          value={formData.nom}
+          onChange={e => setFormData({ ...formData, nom: e.target.value })}
           required
         />
 
-        <button type="submit">Enregistrer</button>
         <select
           className="w-full border p-2 rounded"
-          value={form.enseignant_id}
-          onChange={e => setForm({ ...form, enseignant_id: e.target.value })}
+          value={formData.enseignant_id}
+          onChange={e => setFormData({ ...formData, enseignant_id: e.target.value })}
           required
         >
           <option value="">Sélectionnez un enseignant</option>
@@ -296,14 +417,41 @@ export default function CoursPage() {
 
         <select
           className="w-full border p-2 rounded"
-          value={form.type}
-          onChange={e => setForm({ ...form, type: e.target.value })}
+          value={formData.type}
+          onChange={e => setFormData({ ...formData, type: e.target.value })}
           required
         >
           <option value="">Type de cours</option>
           <option value="Cours">Cours</option>
           <option value="TD">TD</option>
           <option value="TP">TP</option>
+        </select>
+
+        <select
+          className="w-full border p-2 rounded"
+          value={formData.niveau}
+          onChange={e => setFormData({ ...formData, niveau: e.target.value })}
+          required
+        >
+          <option value="">Niveau</option>
+          <option value="L1">L1 (1ère année)</option>
+          <option value="L2">L2 (2ème année)</option>
+          <option value="L3">L3 (3ème année)</option>
+          <option value="M1">M1 (Master 1)</option>
+          <option value="M2">M2 (Master 2)</option>
+        </select>
+
+        <select
+          className="w-full border p-2 rounded"
+          value={formData.groupe_id}
+          onChange={e => setFormData({ ...formData, groupe_id: e.target.value })}
+        >
+          <option value="">Sélectionnez un groupe (optionnel)</option>
+          {groupes.map(groupe => (
+            <option key={groupe.id} value={groupe.id}>
+              {groupe.nom} {groupe.niveau && `(${groupe.niveau})`} {groupe.specialite && `(${groupe.specialite})`}
+            </option>
+          ))}
         </select>
 
         <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
@@ -317,6 +465,8 @@ export default function CoursPage() {
             <th className="border px-2 py-1">Nom du cours</th>
             <th className="border px-2 py-1">Enseignant</th>
             <th className="border px-2 py-1">Type</th>
+            <th className="border px-2 py-1">Niveau</th>
+            <th className="border px-2 py-1">Groupe</th>
             <th className="border px-2 py-1">Actions</th>
           </tr>
         </thead>
@@ -326,6 +476,14 @@ export default function CoursPage() {
               <td className="border px-2 py-1">{c.nom}</td>
               <td className="border px-2 py-1">{c.enseignant_nom}</td>
               <td className="border px-2 py-1">{c.type}</td>
+              <td className="border px-2 py-1">{c.niveau}</td>
+              <td className="border px-2 py-1">
+                {(() => {
+                  const groupe = groupes.find(g => g.id === c.groupe_id);
+                  if (!groupe) return '-';
+                  return `${groupe.nom} ${groupe.niveau ? `(${groupe.niveau})` : ''} ${groupe.specialite ? `(${groupe.specialite})` : ''}`;
+                })()}
+              </td>
               <td className="border px-2 py-1 space-x-2">
                 <button
                   onClick={() => handleEdit(c)}
