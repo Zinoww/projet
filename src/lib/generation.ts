@@ -19,14 +19,27 @@ function shuffle(array: any[]) {
     return array;
 }
 
-export async function genererEmploiDuTemps(setMessage?: (msg: string) => void): Promise<Session[]> {
-    if (setMessage) setMessage('Génération en cours...')
+export async function genererEmploiDuTemps(
+    setMessage: (msg: string) => void, 
+    sectionId: string
+): Promise<Session[]> {
+    setMessage('Génération en cours...')
 
-    const { data: rawCours } = await supabase.from('cours').select('*, enseignant_id')
+    // Récupérer uniquement les cours de la section spécifiée
+    const { data: rawCours, error: coursError } = await supabase
+        .from('cours')
+        .select('*, enseignant_id, groupes!inner(section_id)')
+        .eq('groupes.section_id', sectionId);
+
+    if (coursError) {
+        setMessage(`Erreur lors de la récupération des cours: ${coursError.message}`);
+        return [];
+    }
+
     const { data: salles } = await supabase.from('salles').select('*')
 
-    if (!rawCours || !salles) {
-        if (setMessage) setMessage("Erreur: Impossible de charger les cours ou les salles.")
+    if (!rawCours || !salles || rawCours.length === 0) {
+        setMessage("Aucun cours ou aucune salle disponible pour cette section.")
         return []
     }
     
@@ -109,7 +122,7 @@ export async function genererEmploiDuTemps(setMessage?: (msg: string) => void): 
     const success = backtrack(0)
 
     if (!success) {
-        if (setMessage) setMessage('Impossible de générer un planning valide.')
+        setMessage('Impossible de générer un planning valide.')
         return []
     }
 

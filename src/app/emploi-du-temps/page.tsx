@@ -11,6 +11,7 @@ import { Calendar, momentLocalizer, View } from 'react-big-calendar'
 import withDragAndDrop, { withDragAndDropProps } from 'react-big-calendar/lib/addons/dragAndDrop'
 import 'react-big-calendar/lib/addons/dragAndDrop/styles.css'
 import 'react-big-calendar/lib/css/react-big-calendar.css'
+import Header from '@/src/components/Header'
 
 moment.locale('fr');
 
@@ -23,61 +24,108 @@ type CalendarEvent = {
     type: string;
     enseignant_id: string;
     salle_id: string;
+    filiere_nom?: string;
+    section_nom?: string;
 };
 
-const DnDCalendar = withDragAndDrop(Calendar)
+const DnDCalendar = withDragAndDrop<CalendarEvent>(Calendar)
+
+interface Filiere { id: string; nom: string; }
+interface Section { id: string; nom: string; }
+interface Groupe { id: string; nom: string; }
 
 export default function EmploiDuTempsPage() {
     const [events, setEvents] = useState<CalendarEvent[]>([])
     const [message, setMessage] = useState('')
     const [loading, setLoading] = useState(false)
     const [pdfData, setPdfData] = useState<any[]>([])
-    const [groupes, setGroupes] = useState<any[]>([])
+
+    // State pour les filtres
+    const [filieres, setFilieres] = useState<Filiere[]>([])
+    const [sections, setSections] = useState<Section[]>([])
+    const [groupes, setGroupes] = useState<Groupe[]>([])
+    const [selectedFiliere, setSelectedFiliere] = useState<string>('')
+    const [selectedSection, setSelectedSection] = useState<string>('')
     const [selectedGroupe, setSelectedGroupe] = useState<string>('')
+
     const [currentDate, setCurrentDate] = useState(new Date())
     const [currentView, setCurrentView] = useState<View>('week')
 
     const localizer = momentLocalizer(moment)
 
+    // --- Logique de récupération des données pour les filtres ---
+    useEffect(() => {
+        const fetchFilieres = async () => {
+            const { data, error } = await supabase.from('filieres').select('id, nom').order('nom');
+            if (error) console.error("Erreur chargement filières:", error.message);
+            else setFilieres(data || []);
+        };
+        fetchFilieres();
+    }, []);
+
+    useEffect(() => {
+        const fetchSections = async () => {
+            if (!selectedFiliere) {
+                setSections([]);
+                setGroupes([]);
+                return;
+            }
+            const { data, error } = await supabase.from('sections').select('id, nom').eq('filiere_id', selectedFiliere).order('nom');
+            if (error) console.error("Erreur chargement sections:", error.message);
+            else setSections(data || []);
+        };
+        fetchSections();
+        setSelectedSection('');
+        setSelectedGroupe('');
+    }, [selectedFiliere]);
+
+    useEffect(() => {
     const fetchGroupes = async () => {
-        const { data } = await supabase.from('groupes').select('*')
-        if (data) setGroupes(data)
-    }
+            if (!selectedSection) {
+                setGroupes([]);
+                return;
+            }
+            const { data, error } = await supabase.from('groupes').select('id, nom').eq('section_id', selectedSection).order('nom');
+            if (error) console.error("Erreur chargement groupes:", error.message);
+            else setGroupes(data || []);
+        };
+        fetchGroupes();
+        setSelectedGroupe('');
+    }, [selectedSection]);
+
 
     const fetchEvents = async () => {
         let query = supabase
             .from('emplois_du_temps')
             .select(`
                 id, date, heure_debut, heure_fin, type,
-                cours:cours_id ( nom, groupe_id ),
+                cours:cours_id ( nom, groupe_id, groupes (id, nom, section_id, sections (id, nom, filiere_id, filieres(id, nom))) ),
                 salles:salle_id ( id, nom ),
                 enseignants:enseignant_id ( id, nom )
             `)
 
-        // Filtrer par groupe si sélectionné
         if (selectedGroupe) {
             query = query.eq('cours.groupe_id', selectedGroupe)
+        } else if (selectedSection) {
+            query = query.eq('cours.groupes.section_id', selectedSection)
+        } else {
+             setEvents([])
+             setPdfData([])
+             return
         }
 
         const { data, error } = await query
 
         if (error) {
             setMessage('Erreur chargement des événements: ' + error.message)
-            return []
+            return
         }
 
-        console.log('=== DEBUG PAGE ===');
-        console.log('Données récupérées de Supabase:', data);
-        console.log('Nombre de créneaux:', data?.length || 0);
-
         const calendarEvents = data
-            .filter((e: any) => e.cours && e.cours.nom && e.enseignants && e.salles) // Filtrer les données incomplètes
+            .filter((e: any) => e.cours && e.cours.nom && e.enseignants && e.salles)
             .map((e: any) => {
                 const startDate = moment(`${e.date}T${e.heure_debut}`).toDate();
                 const endDate = moment(`${e.date}T${e.heure_fin}`).toDate();
-                
-                console.log(`Créneau: ${e.cours.nom} - Date: ${e.date} - Début: ${e.heure_debut} - Fin: ${e.heure_fin}`);
-                console.log(`Dates converties: Start=${startDate}, End=${endDate}`);
                 
                 return {
                     id: e.id,
@@ -87,69 +135,64 @@ export default function EmploiDuTempsPage() {
                     resource: { salle: e.salles.nom },
                     type: e.type,
                     enseignant_id: e.enseignants.id,
-                    salle_id: e.salles.id
+                    salle_id: e.salles.id,
+                    filiere_nom: e.cours.groupes?.sections?.filieres?.nom,
+                    section_nom: e.cours.groupes?.sections?.nom,
                 };
             });
         
-        console.log('Events pour le calendrier:', calendarEvents);
         setEvents(calendarEvents);
         
-        // Filtrer les données pour le PDF de manière plus stricte
         const filteredData = data.filter((e: any) => 
-            e && 
-            e.cours && 
-            e.cours.nom && 
-            e.enseignants && 
-            e.enseignants.nom && 
-            e.salles && 
-            e.salles.nom && 
-            e.date && 
-            e.heure_debut && 
-            e.heure_fin
+            e && e.cours && e.cours.nom && e.enseignants && e.enseignants.nom && 
+            e.salles && e.salles.nom && e.date && e.heure_debut && e.heure_fin
         );
-        setPdfData(filteredData); // Stocker les données filtrées pour le PDF
-        console.log('PDF Data filtrée:', filteredData);
+        setPdfData(filteredData);
     }
 
     useEffect(() => {
-        fetchGroupes()
         fetchEvents()
-    }, [selectedGroupe])
+    }, [selectedGroupe, selectedSection, selectedFiliere])
 
     const handleGenerate = async () => {
-        if (!confirm("Voulez-vous supprimer le planning actuel et en générer un nouveau ?")) return;
+        if (!selectedSection) {
+            alert("Veuillez sélectionner une filière et une section pour la génération.")
+            return
+        }
+        if (!confirm(`Voulez-vous supprimer le planning de la section sélectionnée et en générer un nouveau ?`)) return;
 
         setLoading(true)
         setMessage('Génération en cours...')
 
-        // Supprimer l'ancien planning
-        const { data: existingSessions, error: fetchError } = await supabase
-            .from('emplois_du_temps')
-            .select('id')
+        const { data: coursInSection, error: coursError } = await supabase
+            .from('cours')
+            .select('id, groupes!inner(section_id)')
+            .eq('groupes.section_id', selectedSection);
         
-        if (fetchError) {
-            setMessage("Erreur lors de la récupération de l'ancien planning: " + fetchError.message)
-            setLoading(false)
-            return
+        if (coursError || !coursInSection) {
+            setMessage(`Erreur lors de la récupération des cours de la section: ${coursError?.message}`);
+            setLoading(false);
+            return;
         }
 
-        if (existingSessions && existingSessions.length > 0) {
+        if (coursInSection.length > 0) {
+            const coursIdsToDelete = coursInSection.map(c => c.id);
             const { error: deleteError } = await supabase
                 .from('emplois_du_temps')
                 .delete()
-                .in('id', existingSessions.map(s => s.id))
+                .in('cours_id', coursIdsToDelete);
             
             if (deleteError) {
-                setMessage("Erreur lors de la suppression de l'ancien planning: " + deleteError.message)
-                setLoading(false)
-                return
+                setMessage(`Erreur lors de la suppression de l'ancien planning: ${deleteError.message}`);
+                setLoading(false);
+                return;
             }
         }
 
-        const sessions = await genererEmploiDuTemps(setMessage)
+        const sessions = await genererEmploiDuTemps(setMessage, selectedSection)
 
         if (sessions.length === 0) {
-            setMessage('Impossible de générer un emploi du temps.')
+            // setMessage reste tel quel depuis genererEmploiDuTemps
             setLoading(false)
             return
         }
@@ -167,7 +210,7 @@ export default function EmploiDuTempsPage() {
         const { error: insertError } = await supabase.from('emplois_du_temps').insert(sessionsToInsert)
 
         if (insertError) {
-            setMessage("Erreur lors de l'insertion du nouveau planning: " + insertError.message)
+            setMessage(`Erreur lors de l'insertion du nouveau planning: ${insertError.message}`)
         } else {
             setMessage('Planning généré avec succès !')
             await fetchEvents()
@@ -244,674 +287,532 @@ export default function EmploiDuTempsPage() {
     }
 
     const handleNavigate = (newDate: Date, view: string, action: string) => {
-        console.log('Navigation:', { newDate, view, action })
         setCurrentDate(newDate)
     }
 
-    const handleViewChange = (newView: View) => {
-        console.log('View change:', newView)
-        setCurrentView(newView)
+    const getFileName = () => {
+        const filiere = filieres.find(f => f.id === selectedFiliere);
+        const section = sections.find(s => s.id === selectedSection);
+        const groupe = groupes.find(g => g.id === selectedGroupe);
+        
+        if (filiere && section) {
+            return `Emploi_du_temps_${filiere.nom}_${section.nom}${groupe ? `_${groupe.nom}` : ''}`;
+        }
+        return 'emploi_du_temps';
     }
 
-    // Fonction pour exporter en Excel
     const exportToExcel = () => {
-        if (pdfData.length === 0) {
-            alert('Aucune donnée à exporter')
-            return
-        }
-
-        const workbook = XLSX.utils.book_new()
-        const worksheet = XLSX.utils.json_to_sheet(pdfData.map(item => ({
-            'Jour': moment(item.date).format('dddd DD/MM/YYYY'),
-            'Horaire': `${item.heure_debut.substring(0, 5)} - ${item.heure_fin.substring(0, 5)}`,
-            'Type': item.type,
-            'Cours': item.cours.nom,
-            'Enseignant': item.enseignants.nom,
-            'Salle': item.salles.nom,
-            'Groupe': item.groupes?.nom || 'Tous'
-        })))
-
-        XLSX.utils.book_append_sheet(workbook, worksheet, 'Emploi du Temps')
-        
-        const selectedGroupeName = selectedGroupe && groupes ? groupes.find(g => g.id === selectedGroupe)?.nom : null
-        const fileName = `emploi_du_temps_${selectedGroupeName || 'tous'}_${moment().format('YYYY-MM-DD')}.xlsx`
-        
-        XLSX.writeFile(workbook, fileName)
+        const fileName = `${getFileName()}.xlsx`;
+        const worksheetData = pdfData.map((e: any) => ({
+            'Date': moment(e.date).format('DD/MM/YYYY'),
+            'Début': e.heure_debut,
+            'Fin': e.heure_fin,
+            'Type': e.type,
+            'Cours': e.cours.nom,
+            'Enseignant': e.enseignants.nom,
+            'Salle': e.salles.nom,
+        }));
+        const worksheet = XLSX.utils.json_to_sheet(worksheetData);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Emploi du temps');
+        XLSX.writeFile(workbook, fileName);
     }
-
-    // Fonction pour exporter en HTML (imprimable en PDF)
+    
     const exportToHTML = () => {
-        if (pdfData.length === 0) {
-            alert('Aucune donnée à exporter')
-            return
-        }
-
-        // Organiser les données par jour et créneau
-        const timeSlots = [
-            { start: '08:00', end: '09:30' },
-            { start: '09:30', end: '11:00' },
-            { start: '11:00', end: '12:30' },
-            { start: '13:30', end: '15:00' },
-            { start: '15:00', end: '16:30' },
-        ]
+        const fileName = `${getFileName()}.html`;
         
-        const days = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi']
+        // Configuration de la grille
+        const TIME_SLOTS = ["08:00", "09:30", "11:00", "13:30", "15:00", "16:30"];
+        const TIME_SLOT_LABELS = ["08:00-09:30", "09:30-11:00", "11:00-12:30", "13:30-15:00", "15:00-16:30", "16:30-18:00"];
+        const DAYS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi'];
         
         // Organiser les données
-        const organized: any = {}
-        days.forEach(day => {
-            organized[day] = {}
-            timeSlots.forEach(slot => {
-                organized[day][`${slot.start}-${slot.end}`] = null
-            })
-        })
+        const grid: any[][] = Array(DAYS.length).fill(null).map(() => Array(TIME_SLOTS.length).fill(null).map(() => []));
+        const weekStart = moment(currentDate).startOf('week');
 
-        // Remplir avec les données
-        pdfData.forEach(item => {
-            const heureDebut = item.heure_debut.substring(0, 5)
-            const heureFin = item.heure_fin.substring(0, 5)
-            
-            const date = new Date(item.date)
-            const dayIndex = date.getDay() // 0 = dimanche, 1 = lundi, etc.
-            
-            let dayName
-            // Mapping pour dimanche à jeudi
-            if (dayIndex === 0) dayName = 'Dimanche'
-            else if (dayIndex === 1) dayName = 'Lundi'
-            else if (dayIndex === 2) dayName = 'Mardi'
-            else if (dayIndex === 3) dayName = 'Mercredi'
-            else if (dayIndex === 4) dayName = 'Jeudi'
-            else return // Ignorer vendredi (5) et samedi (6)
-            
-            timeSlots.forEach(slot => {
-                if (slot.start === heureDebut && slot.end === heureFin) {
-                    if (organized[dayName] && organized[dayName][`${slot.start}-${slot.end}`] === null) {
-                        organized[dayName][`${slot.start}-${slot.end}`] = item
-                    }
-                }
-            })
-        })
+        pdfData.forEach((event: any) => {
+            const eventDay = moment(event.date).day(); // 0 = dimanche, 1 = lundi, etc.
+            const eventStartHour = event.heure_debut.substring(0, 5);
+            const timeSlotIndex = TIME_SLOTS.indexOf(eventStartHour);
 
-        // Créer le HTML
-        const groupeName = selectedGroupe && groupes ? groupes.find(g => g.id === selectedGroupe)?.nom : null
-        
+            if (eventDay >= 0 && eventDay < DAYS.length && timeSlotIndex !== -1) {
+                grid[eventDay][timeSlotIndex].push(event);
+            }
+        });
+
+        const filiere = filieres.find(f => f.id === selectedFiliere);
+        const section = sections.find(s => s.id === selectedSection);
+        const groupe = groupes.find(g => g.id === selectedGroupe);
+
         const html = `
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="UTF-8">
-                <title>Emploi du Temps</title>
-                <style>
-                    * { margin: 0; padding: 0; box-sizing: border-box; }
-                    
-                    body { 
-                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                        min-height: 100vh;
-                        padding: 20px;
-                    }
-                    
-                    .container {
-                        max-width: 1200px;
-                        margin: 0 auto;
-                        background: white;
-                        border-radius: 15px;
-                        box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-                        overflow: hidden;
-                    }
-                    
-                    .header { 
-                        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-                        color: white;
-                        text-align: center; 
-                        padding: 30px 20px;
-                        position: relative;
-                    }
-                    
-                    .header::before {
-                        content: '';
-                        position: absolute;
-                        top: 0;
-                        left: 0;
-                        right: 0;
-                        bottom: 0;
-                        background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="25" cy="25" r="1" fill="white" opacity="0.1"/><circle cx="75" cy="75" r="1" fill="white" opacity="0.1"/><circle cx="50" cy="10" r="0.5" fill="white" opacity="0.1"/></pattern></defs><rect width="100" height="100" fill="url(%23grain)"/></svg>');
-                    }
-                    
-                    .title { 
-                        font-size: 2.5em; 
-                        font-weight: 700;
-                        margin-bottom: 10px;
-                        text-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                        position: relative;
-                        z-index: 1;
-                    }
-                    
-                    .subtitle { 
-                        font-size: 1.2em; 
-                        margin-bottom: 5px;
-                        opacity: 0.9;
-                        position: relative;
-                        z-index: 1;
-                    }
-                    
-                    .date { 
-                        font-size: 0.9em; 
-                        opacity: 0.8;
-                        position: relative;
-                        z-index: 1;
-                    }
-                    
-                    .content {
-                        padding: 30px;
-                    }
-                    
-                    table { 
-                        width: 100%; 
-                        border-collapse: collapse; 
-                        margin-top: 20px;
-                        border-radius: 10px;
-                        overflow: hidden;
-                        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-                    }
-                    
-                    th, td { 
-                        border: 1px solid #e1e8ed; 
-                        padding: 15px 10px; 
-                        text-align: center; 
-                        vertical-align: middle;
-                    }
-                    
-                    th { 
-                        background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
-                        color: white;
-                        font-weight: 600;
-                        font-size: 0.9em;
-                        text-transform: uppercase;
-                        letter-spacing: 0.5px;
-                    }
-                    
-                    .time-cell { 
-                        background: linear-gradient(135deg, #ecf0f1 0%, #bdc3c7 100%);
-                        font-weight: 600;
-                        color: #2c3e50;
-                        font-size: 0.85em;
-                    }
-                    
-                    .course-cell { 
-                        background: white;
-                        transition: all 0.3s ease;
-                    }
-                    
-                    .course-cell:hover {
-                        transform: scale(1.02);
-                        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-                    }
-                    
-                    .empty-cell { 
-                        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-                        color: #6c757d; 
-                        font-style: italic;
-                        font-size: 0.9em;
-                    }
-                    
-                    .course-type { 
-                        font-weight: 700; 
-                        margin-bottom: 5px;
-                        font-size: 0.9em;
-                        text-transform: uppercase;
-                        letter-spacing: 0.5px;
-                    }
-                    
-                    .course-name { 
-                        margin-bottom: 3px;
-                        font-weight: 500;
-                        color: #2c3e50;
-                    }
-                    
-                    .course-teacher { 
-                        margin-bottom: 2px;
-                        font-size: 0.85em;
-                        color: #7f8c8d;
-                    }
-                    
-                    .course-room { 
-                        font-size: 0.8em;
-                        color: #95a5a6;
-                        font-weight: 500;
-                    }
-                    
-                    .legend { 
-                        margin-top: 30px; 
-                        padding: 25px;
-                        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-                        border-radius: 10px;
-                        border: 1px solid #dee2e6;
-                    }
-                    
-                    .legend-title { 
-                        font-weight: 700; 
-                        text-align: center; 
-                        margin-bottom: 20px;
-                        font-size: 1.1em;
-                        color: #2c3e50;
-                        text-transform: uppercase;
-                        letter-spacing: 0.5px;
-                    }
-                    
-                    .legend-items { 
-                        display: flex; 
-                        justify-content: space-around;
-                        flex-wrap: wrap;
-                        gap: 20px;
-                    }
-                    
-                    .legend-item {
-                        display: flex;
-                        align-items: center;
-                        gap: 10px;
-                        padding: 10px 15px;
-                        border-radius: 8px;
-                        font-weight: 500;
-                        color: white;
-                        min-width: 150px;
-                        justify-content: center;
-                    }
-                    
-                    .legend-cm {
-                        background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-                    }
-                    
-                    .legend-td {
-                        background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%);
-                    }
-                    
-                    .legend-tp {
-                        background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
-                    }
-                    
-                    @media print { 
-                        body { 
-                            background: white;
-                            padding: 0;
-                        }
-                        .container {
-                            box-shadow: none;
-                            border-radius: 0;
-                        }
-                        .header {
-                            background: #4facfe;
-                        }
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <div class="title">Emploi du Temps</div>
-                        ${groupeName ? `<div class="subtitle">Groupe : ${groupeName}</div>` : ''}
-                        <div class="date">Généré le ${new Date().toLocaleDateString('fr-FR')}</div>
-                    </div>
-                    
-                    <div class="content">
-                        <table>
-                            <thead>
+        <!DOCTYPE html>
+        <html lang="fr">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Emploi du Temps</title>
+            <style>
+                body {
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    margin: 0;
+                    padding: 20px;
+                    background-color: #f5f5f5;
+                }
+                .container {
+                    max-width: 1200px;
+                    margin: 0 auto;
+                    background: white;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                    overflow: hidden;
+                }
+                .header {
+                    background: linear-gradient(135deg, #34495e 0%, #2c3e50 100%);
+                    color: white;
+                    padding: 20px;
+                    text-align: center;
+                }
+                .header h1 {
+                    margin: 0;
+                    font-size: 24px;
+                    font-weight: bold;
+                }
+                .header h2 {
+                    margin: 10px 0 0 0;
+                    font-size: 16px;
+                    font-weight: normal;
+                    opacity: 0.9;
+                }
+                .timetable {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin: 20px 0;
+                }
+                .timetable th {
+                    background: #ecf0f1;
+                    color: #2c3e50;
+                    padding: 12px 8px;
+                    text-align: center;
+                    font-weight: bold;
+                    border: 1px solid #bdc3c7;
+                    font-size: 12px;
+                }
+                .timetable td {
+                    border: 1px solid #bdc3c7;
+                    padding: 8px;
+                    text-align: center;
+                    vertical-align: top;
+                    height: 80px;
+                    font-size: 11px;
+                }
+                .time-cell {
+                    background: #f8f9fa;
+                    font-weight: bold;
+                    color: #2c3e50;
+                    width: 80px;
+                }
+                .course-cell {
+                    padding: 4px;
+                    border-radius: 4px;
+                    color: white;
+                    font-weight: bold;
+                    text-align: left;
+                }
+                .course-type {
+                    font-size: 10px;
+                    margin-bottom: 2px;
+                    text-align: center;
+                }
+                .course-name {
+                    font-size: 10px;
+                    margin-bottom: 2px;
+                    font-weight: bold;
+                }
+                .course-teacher {
+                    font-size: 9px;
+                    margin-bottom: 2px;
+                }
+                .course-room {
+                    font-size: 9px;
+                    font-weight: bold;
+                }
+                .empty-cell {
+                    background: #f8f9fa;
+                    color: #95a5a6;
+                    font-style: italic;
+                }
+                .legend {
+                    background: #f8f9fa;
+                    padding: 15px;
+                    border-top: 1px solid #bdc3c7;
+                }
+                .legend h3 {
+                    margin: 0 0 10px 0;
+                    color: #2c3e50;
+                    font-size: 14px;
+                }
+                .legend-items {
+                    display: flex;
+                    gap: 30px;
+                    flex-wrap: wrap;
+                }
+                .legend-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    font-size: 12px;
+                }
+                .legend-color {
+                    width: 16px;
+                    height: 12px;
+                    border-radius: 2px;
+                }
+                .footer {
+                    text-align: center;
+                    padding: 15px;
+                    color: #7f8c8d;
+                    font-size: 11px;
+                    border-top: 1px solid #bdc3c7;
+                }
+                @media print {
+                    body { margin: 0; padding: 0; background: white; }
+                    .container { box-shadow: none; border-radius: 0; }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>EMPLOI DU TEMPS</h1>
+                    <h2>${filiere ? filiere.nom : ''} - ${section ? section.nom : ''}${groupe ? ` - ${groupe.nom}` : ''}</h2>
+                </div>
+                
+                <table class="timetable">
+                    <thead>
+                        <tr>
+                            <th>Horaire</th>
+                            ${DAYS.map(day => {
+                                const date = weekStart.clone().add(DAYS.indexOf(day), 'days').format('DD/MM');
+                                return `<th>${day}<br><small>${date}</small></th>`;
+                            }).join('')}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${TIME_SLOT_LABELS.map((slot, timeIndex) => {
+                            const gridTimeIndex = timeIndex;
+                            return `
                                 <tr>
-                                    <th>Horaire</th>
-                                    ${days.map(day => `<th>${day}</th>`).join('')}
+                                    <td class="time-cell">${slot}</td>
+                                    ${DAYS.map((day, dayIndex) => {
+                                        const cellEvents = grid[dayIndex] ? grid[dayIndex][gridTimeIndex] : [];
+                                        if (cellEvents && cellEvents.length > 0) {
+                                            const event = cellEvents[0];
+                                            const bgColor = event.type === 'CM' ? '#e74c3c' :
+                                                           event.type === 'TD' ? '#e67e22' :
+                                                           event.type === 'TP' ? '#3498db' : '#27ae60';
+                                            return `
+                                                <td>
+                                                    <div class="course-cell" style="background: ${bgColor};">
+                                                        <div class="course-type">${event.type}</div>
+                                                        <div class="course-name">${event.cours?.nom || ''}</div>
+                                                        <div class="course-teacher">${event.enseignants?.nom || ''}</div>
+                                                        <div class="course-room">${event.salles?.nom || ''}</div>
+                                                    </div>
+                                                </td>
+                                            `;
+                                        } else {
+                                            return '<td class="empty-cell">Libre</td>';
+                                        }
+                                    }).join('')}
                                 </tr>
-                            </thead>
-                            <tbody>
-                                ${timeSlots.map(slot => `
-                                    <tr>
-                                        <td class="time-cell">${slot.start}<br>${slot.end}</td>
-                                        ${days.map(day => {
-                                            const courseData = organized[day][`${slot.start}-${slot.end}`]
-                                            if (courseData) {
-                                                const bgColor = courseData.type === 'CM' ? 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)' :
-                                                               courseData.type === 'TD' ? 'linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%)' :
-                                                               courseData.type === 'TP' ? 'linear-gradient(135deg, #3498db 0%, #2980b9 100%)' :
-                                                               'linear-gradient(135deg, #f39c12 0%, #e67e22 100%)';
-                                                return `
-                                                    <td class="course-cell" style="background: ${bgColor}; color: white;">
-                                                        <div class="course-type">${courseData.type}</div>
-                                                        <div class="course-name">${courseData.cours.nom}</div>
-                                                        <div class="course-teacher">${courseData.enseignants.nom}</div>
-                                                        <div class="course-room">${courseData.salles.nom}</div>
-                                                    </td>
-                                                `
-                                            } else {
-                                                return '<td class="empty-cell">Libre</td>'
-                                            }
-                                        }).join('')}
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                        
-                        <div class="legend">
-                            <div class="legend-title">Types de cours</div>
-                            <div class="legend-items">
-                                <div class="flex items-center gap-2">
-                                    <div class="w-4 h-4 bg-red-500 rounded"></div>
-                                    <span>CM - Cours Magistral</span>
-                                </div>
-                                <div class="flex items-center gap-2">
-                                    <div class="w-4 h-4 bg-purple-500 rounded"></div>
-                                    <span>TD - Travaux Dirigés</span>
-                                </div>
-                                <div class="flex items-center gap-2">
-                                    <div class="w-4 h-4 bg-blue-500 rounded"></div>
-                                    <span>TP - Travaux Pratiques</span>
-                                </div>
-                            </div>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+                
+                <div class="legend">
+                    <h3>Légende :</h3>
+                    <div class="legend-items">
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #e74c3c;"></div>
+                            <span>CM - Cours Magistral</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #e67e22;"></div>
+                            <span>TD - Travaux Dirigés</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #3498db;"></div>
+                            <span>TP - Travaux Pratiques</span>
                         </div>
                     </div>
                 </div>
-            </body>
-            </html>
-        `
+                
+                <div class="footer">
+                    Généré le ${moment().format('DD/MM/YYYY à HH:mm')}
+                </div>
+            </div>
+        </body>
+        </html>
+        `;
 
-        // Ouvrir dans une nouvelle fenêtre pour impression
-        const newWindow = window.open('', '_blank')
-        newWindow?.document.write(html)
-        newWindow?.document.close()
-        
-        // Attendre que le contenu soit chargé puis imprimer
-        setTimeout(() => {
-            newWindow?.print()
-        }, 500)
+        const blob = new Blob([html], { type: 'text/html' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = fileName;
+        link.click();
     }
 
     const exportToPDF = async () => {
-        if (pdfData.length === 0) return
-
-        console.log('=== DEBUG PDF EXPORT ===')
-        console.log('PDF Data:', pdfData)
-
-        // Importer jsPDF dynamiquement
-        const jsPDF = (await import('jspdf')).default
-
-        const doc = new jsPDF('landscape', 'mm', 'a4')
+        const fileName = `${getFileName()}.pdf`;
+        const { default: jsPDF } = await import('jspdf');
         
-        // Titre
-        doc.setFontSize(20)
-        doc.text('Emploi du Temps', 140, 20, { align: 'center' })
+        const doc = new jsPDF('landscape', 'mm', 'a4');
         
-        if (selectedGroupe) {
-            const groupe = groupes.find(g => g.id === selectedGroupe)
-            if (groupe) {
-                doc.setFontSize(14)
-                doc.text(`Groupe : ${groupe.nom}`, 140, 30, { align: 'center' })
-            }
-        }
-
-        // Organiser les données par jour et créneau - Dimanche à Jeudi
-        const days = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi']
-        const timeSlots = [
-            { start: '08:00', end: '09:30' },
-            { start: '09:30', end: '11:00' },
-            { start: '11:00', end: '12:30' },
-            { start: '13:30', end: '15:00' },
-            { start: '15:00', end: '16:30' }
-        ]
-
-        const organized: any = {}
-        days.forEach(day => {
-            organized[day] = {}
-            timeSlots.forEach(slot => {
-                organized[day][`${slot.start}-${slot.end}`] = null
-            })
-        })
-
-        pdfData.forEach((item: any) => {
-            const dayIndex = new Date(item.date).getDay()
-            // Mapping correct : 0=dimanche, 1=lundi, 2=mardi, 3=mercredi, 4=jeudi
-            let dayName = 'Dimanche'
-            if (dayIndex === 0) dayName = 'Dimanche'
-            else if (dayIndex === 1) dayName = 'Lundi'
-            else if (dayIndex === 2) dayName = 'Mardi'
-            else if (dayIndex === 3) dayName = 'Mercredi'
-            else if (dayIndex === 4) dayName = 'Jeudi'
-            else return // Ignorer vendredi (5) et samedi (6)
-            
-            const timeKey = `${item.heure_debut.substring(0, 5)}-${item.heure_fin.substring(0, 5)}`
-            
-            console.log(`Item: ${item.date} -> dayIndex: ${dayIndex} -> dayName: ${dayName}, timeKey: ${timeKey}`)
-            
-            if (organized[dayName] && organized[dayName][timeKey] === null) {
-                organized[dayName][timeKey] = item
-                console.log(`✅ Ajouté: ${dayName} ${timeKey}`)
-            } else {
-                console.log(`❌ Non ajouté: ${dayName} ${timeKey} (déjà occupé ou invalide)`)
-            }
-        })
-
-        console.log('Organized data:', organized)
-
-        // Couleurs pour les types de cours
+        // Couleurs professionnelles
         const colors = {
-            'CM': [231, 76, 60],   // Rouge
-            'TD': [155, 89, 182],     // Violet
-            'TP': [52, 152, 219]      // Bleu
+            primary: [52, 73, 94],      // Gris foncé
+            secondary: [149, 165, 166],  // Gris clair
+            accent: [41, 128, 185],      // Bleu professionnel
+            success: [39, 174, 96],      // Vert
+            warning: [230, 126, 34],     // Orange
+            danger: [231, 76, 60],       // Rouge
+            light: [236, 240, 241]       // Gris très clair
+        };
+
+        // En-tête
+        doc.setFillColor(colors.primary[0], colors.primary[1], colors.primary[2]);
+        doc.rect(0, 0, 297, 25, 'F');
+        
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(18);
+        doc.setFont('bold');
+        doc.text('EMPLOI DU TEMPS', 148, 15, { align: 'center' });
+        
+        const filiere = filieres.find(f => f.id === selectedFiliere);
+        const section = sections.find(s => s.id === selectedSection);
+        const groupe = groupes.find(g => g.id === selectedGroupe);
+        
+        if (filiere && section) {
+            doc.setFontSize(12);
+            doc.setFont('normal');
+            doc.text(`${filiere.nom} - ${section.nom}${groupe ? ` - ${groupe.nom}` : ''}`, 148, 25, { align: 'center' });
         }
 
-        // Position de départ du tableau
-        let y = 50
-        const cellHeight = 35
-        const cellWidth = 50
-        const startX = 15
+        // Configuration de la grille
+        const TIME_SLOTS = ["08:00", "09:30", "11:00", "13:30", "15:00", "16:30"];
+        const TIME_SLOT_LABELS = ["08:00-09:30", "09:30-11:00", "11:00-12:30", "13:30-15:00", "15:00-16:30", "16:30-18:00"];
+        const DAYS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi'];
+        
+        // Organiser les données
+        const grid: any[][] = Array(DAYS.length).fill(null).map(() => Array(TIME_SLOTS.length).fill(null).map(() => []));
+        const weekStart = moment(currentDate).startOf('week');
+
+        pdfData.forEach((event: any) => {
+            const eventDay = moment(event.date).day(); // 0 = dimanche, 1 = lundi, etc.
+            const eventStartHour = event.heure_debut.substring(0, 5);
+            const timeSlotIndex = TIME_SLOTS.indexOf(eventStartHour);
+
+            if (eventDay >= 0 && eventDay < DAYS.length && timeSlotIndex !== -1) {
+                grid[eventDay][timeSlotIndex].push(event);
+            }
+        });
+
+        // Position de départ
+        let y = 40;
+        const cellHeight = 28;
+        const cellWidth = 45;
+        const timeColWidth = 30;
+        
+        // Centrer le tableau
+        const totalWidth = timeColWidth + DAYS.length * cellWidth;
+        const startX = (297 - totalWidth) / 2; // 297mm est la largeur d'une page A4 en paysage
 
         // En-têtes des jours
-        doc.setFontSize(12)
-        doc.setFont('bold')
-        days.forEach((day, index) => {
-            doc.text(day, startX + (index + 1) * cellWidth + cellWidth/2, y, { align: 'center' })
-        })
+        doc.setFillColor(colors.secondary[0], colors.secondary[1], colors.secondary[2]);
+        doc.rect(startX, y, timeColWidth + DAYS.length * cellWidth, 15, 'F');
+        
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(10);
+        doc.setFont('bold');
+        
+        // Colonne des horaires
+        doc.text('Horaire', startX + timeColWidth/2, y + 10, { align: 'center' });
+        
+        // Jours avec dates
+        DAYS.forEach((day, index) => {
+            const date = weekStart.clone().add(index, 'days').format('DD/MM');
+            const x = startX + timeColWidth + index * cellWidth;
+            doc.text(day, x + cellWidth/2, y + 6, { align: 'center' });
+            doc.setFontSize(8);
+            doc.setFont('normal');
+            doc.text(date, x + cellWidth/2, y + 11, { align: 'center' });
+            doc.setFontSize(10);
+            doc.setFont('bold');
+        });
 
-        // En-têtes des horaires
-        doc.text('Horaire', startX + cellWidth/2, y, { align: 'center' })
-
-        y += 15
+        y += 15;
 
         // Contenu du tableau
-        timeSlots.forEach(slot => {
+        TIME_SLOT_LABELS.forEach((slot, timeIndex) => {
+            const gridTimeIndex = timeIndex;
+
             // Horaire
-            doc.setFontSize(10)
-            doc.setFont('normal')
-            doc.text(`${slot.start}\n${slot.end}`, startX + cellWidth/2, y + 12, { align: 'center' })
+            doc.setFillColor(colors.light[0], colors.light[1], colors.light[2]);
+            doc.rect(startX, y, timeColWidth, cellHeight, 'F');
+            doc.setTextColor(colors.primary[0], colors.primary[1], colors.primary[2]);
+            doc.setFontSize(8);
+            doc.setFont('bold');
+            doc.text(slot, startX + timeColWidth/2, y + 18, { align: 'center' });
 
             // Cours pour chaque jour
-            days.forEach((day, dayIndex) => {
-                const courseData = organized[day][`${slot.start}-${slot.end}`]
-                const x = startX + (dayIndex + 1) * cellWidth
+            DAYS.forEach((day, dayIndex) => {
+                const cellEvents = grid[dayIndex] ? grid[dayIndex][gridTimeIndex] : [];
+                const x = startX + timeColWidth + dayIndex * cellWidth;
                 
-                if (courseData) {
-                    const bgColor = colors[courseData.type as keyof typeof colors] || [128, 128, 128]
-                    doc.setFillColor(bgColor[0], bgColor[1], bgColor[2])
-                    doc.rect(x, y, cellWidth, cellHeight, 'F')
+                if (cellEvents && cellEvents.length > 0) {
+                    const event = cellEvents[0];
                     
-                    // Texte en blanc centré
-                    doc.setTextColor(255, 255, 255)
-                    doc.setFontSize(8)
-                    doc.text(courseData.type || 'N/A', x + cellWidth/2, y + 5, { align: 'center' })
-                    doc.text((courseData.cours?.nom || 'N/A').substring(0, 15), x + cellWidth/2, y + 12, { align: 'center' })
-                    doc.text((courseData.enseignants?.nom || 'N/A').substring(0, 15), x + cellWidth/2, y + 19, { align: 'center' })
-                    doc.text((courseData.salles?.nom || 'N/A').substring(0, 15), x + cellWidth/2, y + 26, { align: 'center' })
-                    doc.setTextColor(0, 0, 0)
+                    // Couleurs selon le type
+                    let bgColor;
+                    switch(event.type) {
+                        case 'CM': bgColor = colors.danger; break;
+                        case 'TD': bgColor = colors.warning; break;
+                        case 'TP': bgColor = colors.accent; break;
+                        default: bgColor = colors.success;
+                    }
+                    
+                    doc.setFillColor(bgColor[0], bgColor[1], bgColor[2]);
+                    doc.rect(x, y, cellWidth, cellHeight, 'F');
+                    
+                    // Texte en blanc
+                    doc.setTextColor(255, 255, 255);
+                    doc.setFontSize(7);
+                    doc.setFont('bold');
+                    doc.text(event.type, x + 3, y + 6);
+                    doc.setFont('normal');
+                    doc.text((event.cours?.nom || '').substring(0, 18), x + 3, y + 12);
+                    doc.text((event.enseignants?.nom || '').substring(0, 18), x + 3, y + 18);
+                    doc.text((event.salles?.nom || '').substring(0, 18), x + 3, y + 24);
                 } else {
                     // Case vide
-                    doc.rect(x, y, cellWidth, cellHeight, 'S')
-                    doc.text('Libre', x + cellWidth/2, y + 17, { align: 'center' })
+                    doc.setFillColor(255, 255, 255);
+                    doc.rect(x, y, cellWidth, cellHeight, 'F');
+                    doc.rect(x, y, cellWidth, cellHeight, 'S');
+                    doc.setTextColor(colors.secondary[0], colors.secondary[1], colors.secondary[2]);
+                    doc.setFontSize(7);
+                    doc.text('Libre', x + cellWidth/2, y + 14, { align: 'center' });
                 }
-            })
+            });
 
-            y += cellHeight
-        })
+            y += cellHeight;
+        });
 
         // Légende
-        y += 10
-        doc.setFontSize(12)
-        doc.setFont('bold')
-        doc.text('Types de cours :', startX, y)
+        y += 10;
+        doc.setFillColor(colors.light[0], colors.light[1], colors.light[2]);
+        doc.rect(startX, y, timeColWidth + DAYS.length * cellWidth, 15, 'F');
         
-        y += 8
-        doc.setFontSize(10)
-        doc.setFont('normal')
+        doc.setTextColor(colors.primary[0], colors.primary[1], colors.primary[2]);
+        doc.setFontSize(8);
+        doc.setFont('bold');
+        doc.text('Légende :', startX + 5, y + 6);
         
-        Object.entries(colors).forEach(([type, color], index) => {
-            const x = startX + index * 60
-            if (color && Array.isArray(color) && color.length >= 3) {
-                doc.setFillColor(color[0], color[1], color[2])
-                doc.rect(x, y, 15, 8, 'F')
-                doc.setTextColor(0, 0, 0)
-                doc.text(`${type}`, x + 20, y + 6)
-            }
-        })
+        const legendItems = [
+            { type: 'CM', color: colors.danger, name: 'Cours Magistral' },
+            { type: 'TD', color: colors.warning, name: 'Travaux Dirigés' },
+            { type: 'TP', color: colors.accent, name: 'Travaux Pratiques' }
+        ];
+        
+        legendItems.forEach((item, index) => {
+            const x = startX + 25 + index * 70;
+            doc.setFillColor(item.color[0], item.color[1], item.color[2]);
+            doc.rect(x, y + 2, 8, 6, 'F');
+            doc.setTextColor(colors.primary[0], colors.primary[1], colors.primary[2]);
+            doc.setFontSize(7);
+            doc.setFont('normal');
+            doc.text(`${item.type} - ${item.name}`, x + 12, y + 6);
+        });
 
-        // Sauvegarder le PDF
-        const filename = selectedGroupe ? 
-            `emploi_du_temps_${groupes.find(g => g.id === selectedGroupe)?.nom}.pdf` : 
-            'emploi_du_temps.pdf'
-        doc.save(filename)
+        // Pied de page
+        doc.setFontSize(7);
+        doc.setTextColor(colors.secondary[0], colors.secondary[1], colors.secondary[2]);
+        doc.text(`Généré le ${moment().format('DD/MM/YYYY à HH:mm')}`, 148, y + 12, { align: 'center' });
+
+        doc.save(fileName);
     }
 
+
     return (
-        <div className="p-6 max-w-6xl mx-auto">
-            <h1 className="text-2xl font-bold mb-6">Emploi du temps</h1>
+        <div className="min-h-screen bg-gray-50 p-4">
+            <Header />
 
-            <div className="flex gap-4 mb-4">
-                <button
-                    onClick={handleGenerate}
-                    disabled={loading}
-                    className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700"
-                >
-                    {loading ? 'Génération...' : 'Générer un nouveau planning'}
-                </button>
+            <div className="max-w-7xl mx-auto">
+                <h1 className="text-4xl font-bold text-gray-800 mb-6 text-center">Emploi du Temps</h1>
 
-                <select
-                    value={selectedGroupe}
-                    onChange={(e) => setSelectedGroupe(e.target.value)}
-                    className="border p-2 rounded"
-                >
+                <div className="flex justify-between items-center mb-4 p-4 bg-gray-100 rounded-lg shadow">
+                    <div className="flex items-center gap-4">
+                        <select value={selectedFiliere} onChange={(e) => setSelectedFiliere(e.target.value)} className="border p-2 rounded">
+                            <option value="">Sélectionnez une filière</option>
+                            {filieres.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
+                        </select>
+                        <select value={selectedSection} onChange={(e) => setSelectedSection(e.target.value)} className="border p-2 rounded" disabled={!selectedFiliere}>
+                            <option value="">Sélectionnez une section</option>
+                            {sections.map(s => <option key={s.id} value={s.id}>{s.nom}</option>)}
+                        </select>
+                        <select value={selectedGroupe} onChange={(e) => setSelectedGroupe(e.target.value)} className="border p-2 rounded" disabled={!selectedSection}>
                     <option value="">Tous les groupes</option>
-                    {groupes.map(groupe => (
-                        <option key={groupe.id} value={groupe.id}>
-                            {groupe.nom} {groupe.niveau && `(${groupe.niveau})`} {groupe.specialite && `(${groupe.specialite})`}
-                        </option>
-                    ))}
+                            {groupes.map(g => <option key={g.id} value={g.id}>{g.nom}</option>)}
                 </select>
-
-                {/* Export Excel */}
-                {pdfData.length > 0 && (
-                  <button
-                    onClick={exportToExcel}
-                    className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-                  >
-                    📊 Exporter Excel
-                  </button>
-                )}
-
-                {/* Export HTML */}
-                {pdfData.length > 0 && (
-                  <button
-                    onClick={exportToHTML}
-                    className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700"
-                  >
-                    📄 Export HTML (Imprimable en PDF)
-                  </button>
-                )}
-
-                {/* Export PDF avec jsPDF */}
-                {pdfData.length > 0 && (
-                  <button
-                    onClick={exportToPDF}
-                    className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
-                  >
-                    📄 Export PDF
-                  </button>
-                )}
-            </div>
-
-            {message && <p className="text-sm text-gray-700 mb-4">{message}</p>}
-
-            {/* Légende des types de cours */}
-            <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-                <h3 className="text-sm font-semibold mb-2">Types de cours :</h3>
-                <div className="flex gap-4 text-xs">
-                    <div className="flex items-center gap-2">
-                        <div className="w-4 h-4 bg-red-500 rounded"></div>
-                        <span>CM - Cours Magistral</span>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <div className="w-4 h-4 bg-purple-500 rounded"></div>
-                        <span>TD - Travaux Dirigés</span>
+
+                    <div className="flex items-center gap-4">
+                        <button
+                            onClick={handleGenerate}
+                            disabled={loading || !selectedSection}
+                            className="bg-purple-600 text-white font-bold px-4 py-2 rounded hover:bg-purple-700 disabled:bg-gray-400"
+                        >
+                            {loading ? 'Génération...' : 'Générer Planning'}
+                        </button>
+                        <div className="flex gap-2">
+                            <button onClick={exportToExcel} disabled={!selectedSection} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 disabled:bg-gray-400">Excel</button>
+                            <button onClick={exportToPDF} disabled={!selectedSection} className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 disabled:bg-gray-400">PDF</button>
+                            <button onClick={exportToHTML} disabled={!selectedSection} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:bg-gray-400">HTML</button>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <div className="w-4 h-4 bg-blue-500 rounded"></div>
-                        <span>TP - Travaux Pratiques</span>
                     </div>
                 </div>
-            </div>
 
+                {message && <p className="mb-4 text-center font-semibold">{message}</p>}
+
+                <div className="bg-white p-4 rounded-lg shadow" style={{ height: '75vh' }}>
             <DnDCalendar
                 localizer={localizer}
                 events={events}
                 onEventDrop={onEventDrop}
                 onDoubleClickEvent={handleDoubleClickEvent}
-                eventPropGetter={eventStyleGetter}
+                        startAccessor={(event: CalendarEvent) => event.start}
+                        endAccessor={(event: CalendarEvent) => event.end}
+                        resizable
+                        draggableAccessor={() => true}
+                        views={['month', 'week', 'day']}
+                        view={currentView}
+                        onView={view => setCurrentView(view)}
+                        date={currentDate}
                 onNavigate={handleNavigate}
-                onView={handleViewChange}
-                date={currentDate}
-                view={currentView}
-                resizable
-                startAccessor={(event) => (event as CalendarEvent).start}
-                endAccessor={(event) => (event as CalendarEvent).end}
-                style={{ height: 600 }}
-                defaultView="week"
-                views={['day', 'week', 'month']}
-                min={new Date(1970, 1, 1, 8, 0)}
-                max={new Date(1970, 1, 1, 18, 0)}
-                step={30}
-                timeslots={2}
-                formats={{
-                    dayHeaderFormat: (date: Date) => moment(date).format('dddd DD/MM'),
-                    dayRangeHeaderFormat: ({ start, end }: { start: Date; end: Date }) => 
-                        `${moment(start).format('DD/MM')} - ${moment(end).format('DD/MM')}`,
-                    timeGutterFormat: (date: Date) => moment(date).format('HH:mm'),
-                }}
                 messages={{
+                            next: "Suivant",
+                            previous: "Précédent",
                     today: "Aujourd'hui",
-                    previous: 'Précédent',
-                    next: 'Suivant',
-                    month: 'Mois',
-                    week: 'Semaine',
-                    day: 'Jour',
-                    agenda: 'Agenda',
-                    noEventsInRange: 'Aucun cours prévu dans cette période.',
-                    allDay: 'Toute la journée',
-                    yesterday: 'Hier',
-                    tomorrow: 'Demain',
-                    showMore: (total: number) => `+${total} autres`,
-                }}
-                components={{
-                    event: (props: any) => (
-                        <div style={{ 
-                            padding: '2px 4px', 
-                            fontSize: '10px',
-                            lineHeight: '1.2',
-                            overflow: 'hidden'
-                        }}>
-                            <div style={{ fontWeight: 'bold', marginBottom: '1px' }}>
-                                {props.title.split(' - ')[0]}
-                            </div>
-                            <div style={{ fontSize: '9px', opacity: 0.9 }}>
-                                {props.title.split(' - ')[1]}
+                            month: "Mois",
+                            week: "Semaine",
+                            day: "Jour"
+                        }}
+                        eventPropGetter={eventStyleGetter}
+                        min={new Date(0, 0, 0, 8, 0, 0)}
+                        max={new Date(0, 0, 0, 19, 0, 0)}
+                    />
                             </div>
                         </div>
-                    )
-                }}
-            />
         </div>
-    )
+    );
 }

@@ -3,25 +3,25 @@
 import { useState, useEffect, FormEvent } from 'react'
 import { supabase } from '@/src/lib/supabaseClient'
 import Link from 'next/link'
-import { FaUsers, FaPlus, FaTrash, FaPencilAlt, FaArrowLeft } from 'react-icons/fa'
+import { FaLayerGroup, FaPlus, FaTrash, FaPencilAlt, FaArrowLeft } from 'react-icons/fa'
+
+interface Filiere {
+    id: number
+    nom: string
+}
 
 interface Section {
     id: number
     nom: string
+    filiere_id: number
+    filieres: { nom: string }
 }
 
-interface Groupe {
-    id: number
-    nom: string
-    section_id: number
-    sections: { nom: string } 
-}
-
-export default function GroupesPage() {
-    const [groupes, setGroupes] = useState<Groupe[]>([])
+export default function SectionsPage() {
     const [sections, setSections] = useState<Section[]>([])
-    const [newGroupe, setNewGroupe] = useState({ nom: '', section_id: '' })
-    const [editingGroupe, setEditingGroupe] = useState<Groupe | null>(null)
+    const [filieres, setFilieres] = useState<Filiere[]>([])
+    const [newSection, setNewSection] = useState({ nom: '', filiere_id: '' })
+    const [editingSection, setEditingSection] = useState<Section | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
@@ -31,91 +31,91 @@ export default function GroupesPage() {
 
     const fetchInitialData = async () => {
         setLoading(true)
-        await Promise.all([fetchGroupes(), fetchSections()])
+        await Promise.all([fetchSections(), fetchFilieres()])
         setLoading(false)
     }
 
-    const fetchGroupes = async () => {
+    const fetchSections = async () => {
         const { data, error } = await supabase
-            .from('groupes')
-            .select('*, sections(nom)')
+            .from('sections')
+            .select('*, filieres(nom)')
             .order('nom', { ascending: true })
 
         if (error) {
             console.error('Erreur de chargement:', error)
-            setError('Impossible de charger les groupes.')
+            setError('Impossible de charger les sections.')
         } else {
-            setGroupes(data as Groupe[])
+            setSections(data as Section[])
             setError(null)
         }
     }
 
-    const fetchSections = async () => {
-        const { data, error } = await supabase.from('sections').select('*').order('nom', { ascending: true })
+    const fetchFilieres = async () => {
+        const { data, error } = await supabase.from('filieres').select('*').order('nom', { ascending: true })
         if (error) {
-            console.error('Erreur de chargement des sections:', error)
+            console.error('Erreur de chargement des filières:', error)
         } else {
-            setSections(data || [])
+            setFilieres(data || [])
         }
     }
 
-    const handleAddGroupe = async (e: FormEvent) => {
+    const handleAddSection = async (e: FormEvent) => {
         e.preventDefault()
-        if (!newGroupe.nom.trim() || !newGroupe.section_id) {
-            setError('Le nom et la section sont obligatoires.')
+        if (!newSection.nom.trim() || !newSection.filiere_id) {
+            setError('Le nom et la filière sont obligatoires.')
             return
         }
 
         const { data, error } = await supabase
-            .from('groupes')
+            .from('sections')
             .insert([{ 
-                nom: newGroupe.nom.trim(), 
-                section_id: parseInt(newGroupe.section_id) 
+                nom: newSection.nom.trim(), 
+                filiere_id: parseInt(newSection.filiere_id) 
             }])
-            .select('*, sections(nom)')
+            .select('*, filieres(nom)')
         
         if (error) {
             console.error('Erreur ajout:', error)
-            setError('Erreur lors de l\'ajout du groupe.')
+            setError('Erreur lors de l\'ajout de la section.')
         } else if (data) {
-            setGroupes([...groupes, ...(data as Groupe[])])
-            setNewGroupe({ nom: '', section_id: '' })
+            setSections([...sections, ...(data as Section[])])
+            setNewSection({ nom: '', filiere_id: '' })
             setError(null)
         }
     }
     
-    const handleDeleteGroupe = async (id: number) => {
-        if (!confirm('Êtes-vous sûr de vouloir supprimer ce groupe ?')) return
+    const handleDeleteSection = async (id: number) => {
+        if (!confirm('Êtes-vous sûr de vouloir supprimer cette section ?')) return
 
-        const { error } = await supabase.from('groupes').delete().eq('id', id)
+        const { error } = await supabase.from('sections').delete().eq('id', id)
         if (error) {
             console.error('Erreur suppression:', error)
-            setError('Impossible de supprimer ce groupe.')
+            setError('Impossible de supprimer cette section.')
         } else {
-            setGroupes(groupes.filter((g) => g.id !== id))
+            setSections(sections.filter((s) => s.id !== id))
             setError(null)
         }
     }
 
-    const handleUpdateGroupe = async (e: FormEvent) => {
+    const handleUpdateSection = async (e: FormEvent) => {
         e.preventDefault()
-        if (!editingGroupe || !editingGroupe.nom.trim()) return
+        if (!editingSection || !editingSection.nom.trim()) return
 
         const { data, error } = await supabase
-            .from('groupes')
+            .from('sections')
             .update({
-                nom: editingGroupe.nom.trim(),
-                section_id: editingGroupe.section_id
+                nom: editingSection.nom.trim(),
+                filiere_id: editingSection.filiere_id
             })
-            .eq('id', editingGroupe.id)
-            .select('*, sections(nom)')
+            .eq('id', editingSection.id)
+            .select('*, filieres(nom)')
         
         if (error) {
             console.error('Erreur mise à jour:', error)
             setError('Erreur lors de la mise à jour.')
         } else if (data) {
-            setGroupes(groupes.map(g => g.id === editingGroupe.id ? (data[0] as Groupe) : g))
-            setEditingGroupe(null)
+            setSections(sections.map(s => s.id === editingSection.id ? (data[0] as Section) : s))
+            setEditingSection(null)
             setError(null)
         }
     }
@@ -123,29 +123,29 @@ export default function GroupesPage() {
     const renderEditForm = () => (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
             <div className="bg-white p-8 rounded-lg shadow-2xl w-full max-w-md">
-                <h2 className="text-2xl font-bold text-gray-800 mb-6">Modifier le Groupe</h2>
-                <form onSubmit={handleUpdateGroupe} className="space-y-4">
+                <h2 className="text-2xl font-bold text-gray-800 mb-6">Modifier la Section</h2>
+                <form onSubmit={handleUpdateSection} className="space-y-4">
                     <input
                         type="text"
-                        value={editingGroupe?.nom || ''}
-                        onChange={(e) => setEditingGroupe(editingGroupe ? { ...editingGroupe, nom: e.target.value } : null)}
+                        value={editingSection?.nom || ''}
+                        onChange={(e) => setEditingSection(editingSection ? { ...editingSection, nom: e.target.value } : null)}
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        placeholder="Nom du groupe"
+                        placeholder="Nom de la section"
                         required
                     />
                     <select
-                        value={editingGroupe?.section_id || ''}
-                        onChange={(e) => setEditingGroupe(editingGroupe ? { ...editingGroupe, section_id: parseInt(e.target.value) } : null)}
+                        value={editingSection?.filiere_id || ''}
+                        onChange={(e) => setEditingSection(editingSection ? { ...editingSection, filiere_id: parseInt(e.target.value) } : null)}
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         required
                     >
-                        <option value="">Sélectionner une section</option>
-                        {sections.map(section => (
-                            <option key={section.id} value={section.id}>{section.nom}</option>
+                        <option value="">Sélectionner une filière</option>
+                        {filieres.map(filiere => (
+                            <option key={filiere.id} value={filiere.id}>{filiere.nom}</option>
                         ))}
                     </select>
                     <div className="flex justify-end gap-4 mt-6">
-                        <button type="button" onClick={() => setEditingGroupe(null)} className="px-6 py-2 rounded-lg text-gray-700 bg-gray-200 hover:bg-gray-300">
+                        <button type="button" onClick={() => setEditingSection(null)} className="px-6 py-2 rounded-lg text-gray-700 bg-gray-200 hover:bg-gray-300">
                             Annuler
                         </button>
                         <button type="submit" className="px-6 py-2 rounded-lg text-white bg-indigo-600 hover:bg-indigo-700">
@@ -167,32 +167,32 @@ export default function GroupesPage() {
                     </Link>
                     <div className="flex items-center justify-between">
                         <h1 className="text-4xl font-bold text-gray-800 flex items-center">
-                            <FaUsers className="mr-3 text-indigo-500" />
-                            Gestion des Groupes
+                            <FaLayerGroup className="mr-3 text-indigo-500" />
+                            Gestion des Sections
                         </h1>
                     </div>
                 </header>
 
                 <div className="bg-white p-8 rounded-xl shadow-md mb-8">
-                    <h2 className="text-2xl font-semibold text-gray-700 mb-6">Ajouter un nouveau groupe</h2>
-                    <form onSubmit={handleAddGroupe} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <h2 className="text-2xl font-semibold text-gray-700 mb-6">Ajouter une nouvelle section</h2>
+                    <form onSubmit={handleAddSection} className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <input
                             type="text"
-                            value={newGroupe.nom}
-                            onChange={(e) => setNewGroupe({...newGroupe, nom: e.target.value})}
-                            placeholder="Nom du groupe"
+                            value={newSection.nom}
+                            onChange={(e) => setNewSection({...newSection, nom: e.target.value})}
+                            placeholder="Nom de la section"
                             className="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                             required
                         />
                         <select
-                            value={newGroupe.section_id}
-                            onChange={(e) => setNewGroupe({...newGroupe, section_id: e.target.value})}
+                            value={newSection.filiere_id}
+                            onChange={(e) => setNewSection({...newSection, filiere_id: e.target.value})}
                             className="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                             required
                         >
-                            <option value="">Sélectionner une section</option>
-                            {sections.map(section => (
-                                <option key={section.id} value={section.id}>{section.nom}</option>
+                            <option value="">Sélectionner une filière</option>
+                            {filieres.map(filiere => (
+                                <option key={filiere.id} value={filiere.id}>{filiere.nom}</option>
                             ))}
                         </select>
                         <button type="submit" className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition-colors">
@@ -214,7 +214,7 @@ export default function GroupesPage() {
                                     Nom
                                 </th>
                                 <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
-                                    Section
+                                    Filière
                                 </th>
                                 <th scope="col" className="px-6 py-4 text-right text-xs font-bold text-gray-600 uppercase tracking-wider">
                                     Actions
@@ -226,23 +226,23 @@ export default function GroupesPage() {
                                 <tr>
                                     <td colSpan={4} className="text-center py-10 text-gray-500">Chargement...</td>
                                 </tr>
-                            ) : groupes.length > 0 ? (
-                                groupes.map((groupe) => (
-                                    <tr key={groupe.id} className="hover:bg-gray-50 transition-colors">
+                            ) : sections.length > 0 ? (
+                                sections.map((section) => (
+                                    <tr key={section.id} className="hover:bg-gray-50 transition-colors">
                                         <td className="px-6 py-4 whitespace-nowrap">
-                                            <div className="text-sm font-medium text-gray-900">{groupe.id}</div>
+                                            <div className="text-sm font-medium text-gray-900">{section.id}</div>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
-                                            <div className="text-sm font-medium text-gray-900">{groupe.nom}</div>
+                                            <div className="text-sm font-medium text-gray-900">{section.nom}</div>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
-                                            <div className="text-sm text-gray-900">{groupe.sections?.nom || '-'}</div>
+                                            <div className="text-sm text-gray-900">{section.filieres?.nom || '-'}</div>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                            <button onClick={() => setEditingGroupe(groupe)} className="text-indigo-600 hover:text-indigo-900 mr-4">
+                                            <button onClick={() => setEditingSection(section)} className="text-indigo-600 hover:text-indigo-900 mr-4">
                                                 <FaPencilAlt />
                                             </button>
-                                            <button onClick={() => handleDeleteGroupe(groupe.id)} className="text-red-600 hover:text-red-900">
+                                            <button onClick={() => handleDeleteSection(section.id)} className="text-red-600 hover:text-red-900">
                                                 <FaTrash />
                                             </button>
                                         </td>
@@ -250,14 +250,14 @@ export default function GroupesPage() {
                                 ))
                             ) : (
                                 <tr>
-                                    <td colSpan={4} className="text-center py-10 text-gray-500">Aucun groupe trouvé.</td>
+                                    <td colSpan={4} className="text-center py-10 text-gray-500">Aucune section trouvée.</td>
                                 </tr>
                             )}
                         </tbody>
                     </table>
                 </div>
             </div>
-            {editingGroupe && renderEditForm()}
+            {editingSection && renderEditForm()}
         </div>
     )
-} 
+}

@@ -1,208 +1,226 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState, useEffect, FormEvent } from 'react'
 import { supabase } from '@/src/lib/supabaseClient'
-import * as XLSX from 'xlsx'
-import { useRouter } from 'next/navigation'
-type Salle = {
-    id: string
+import Link from 'next/link'
+import { FaBuilding, FaPlus, FaTrash, FaPencilAlt, FaArrowLeft } from 'react-icons/fa'
+
+interface Salle {
+    id: number
     nom: string
     capacite: number
 }
 
 export default function SallesPage() {
     const [salles, setSalles] = useState<Salle[]>([])
-    const [form, setForm] = useState({ nom: '', capacite: '' })
-    const [editingId, setEditingId] = useState<string | null>(null)
-    const router = useRouter()
-    // Chargement des salles
+    const [newSalle, setNewSalle] = useState({ nom: '', capacite: '' })
+    const [editingSalle, setEditingSalle] = useState<Salle | null>(null)
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState<string | null>(null)
+
     useEffect(() => {
-        const fetchSalles = async () => {
-            const { data, error } = await supabase.from('salles').select('*')
-            if (error) {
-                console.error('Erreur chargement des salles :', error.message)
-            } else if (data) {
-                setSalles(data as Salle[])
-            }
-        }
         fetchSalles()
     }, [])
 
-    // Soumission formulaire (ajout ou modification)
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault()
-
-        if (editingId) {
-            const { error } = await supabase
-                .from('salles')
-                .update({ nom: form.nom, capacite: Number(form.capacite) })
-                .eq('id', editingId)
-
-            if (error) {
-                alert('Erreur : ' + error.message)
-            } else {
-                alert('Salle modifiée avec succès !')
-                setSalles(prev =>
-                    prev.map(s =>
-                        s.id === editingId
-                            ? { ...s, nom: form.nom, capacite: Number(form.capacite) }
-                            : s
-                    )
-                )
-                setEditingId(null)
-                setForm({ nom: '', capacite: '' })
-            }
+    const fetchSalles = async () => {
+        setLoading(true)
+        const { data, error } = await supabase.from('salles').select('*').order('nom', { ascending: true })
+        if (error) {
+            console.error('Erreur de chargement:', error)
+            setError('Impossible de charger les salles.')
         } else {
-            const { data, error } = await supabase.from('salles').insert([{
-                nom: form.nom,
-                capacite: Number(form.capacite)
-            }])
-                .select()
-
-            if (error) {
-                alert('Erreur : ' + error.message)
-            } else if (data) {
-                alert('Salle ajoutée avec succès !')
-                setForm({ nom: '', capacite: '' })
-                setSalles(prev => [...prev, ...data])
-            }
+            setSalles(data)
+            setError(null)
         }
+        setLoading(false)
     }
 
-    // Import Excel (.xlsx)
-    const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
-        if (!file) return
-
-        const reader = new FileReader()
-        reader.onload = async (evt) => {
-            const data = new Uint8Array(evt.target?.result as ArrayBuffer)
-            const workbook = XLSX.read(data, { type: 'array' })
-            const sheet = workbook.Sheets[workbook.SheetNames[0]]
-            const jsonData = XLSX.utils.sheet_to_json(sheet)
-
-            const sallesToInsert = (jsonData as any[]).map(item => ({
-                nom: item.nom || item.Nom || '',
-                capacite: Number(item.capacite || item.Capacité || 0)
-            })).filter(salle => salle.nom && salle.capacite)
-
-            if (sallesToInsert.length === 0) {
-                alert('Aucune salle valide trouvée dans le fichier.')
-                return
-            }
-
-            const { data: inserted, error } = await supabase.from('salles').insert(sallesToInsert)
-
-            if (error) {
-                alert('Erreur lors de l’importation : ' + error.message)
-            } else if (inserted) {
-                alert('Importation réussie !')
-                setSalles(prev => [...prev, ...inserted])
-            }
+    const handleAddSalle = async (e: FormEvent) => {
+        e.preventDefault()
+        if (!newSalle.nom.trim() || !newSalle.capacite.trim()) {
+            setError('Le nom et la capacité sont obligatoires.')
+            return
         }
 
-        reader.readAsArrayBuffer(file)
+        const { data, error } = await supabase.from('salles').insert([{
+            nom: newSalle.nom.trim(),
+            capacite: parseInt(newSalle.capacite)
+        }]).select()
+        
+        if (error) {
+            console.error('Erreur ajout:', error)
+            setError('Erreur lors de l\'ajout de la salle.')
+        } else if (data) {
+            setSalles([...salles, ...data])
+            setNewSalle({ nom: '', capacite: '' })
+            setError(null)
+        }
     }
+    
+    const handleDeleteSalle = async (id: number) => {
+        if (!confirm('Êtes-vous sûr de vouloir supprimer cette salle ?')) return
 
-    // Suppression
-    const handleDelete = async (id: string) => {
-        if (!confirm("Supprimer cette salle ?")) return
         const { error } = await supabase.from('salles').delete().eq('id', id)
         if (error) {
-            alert("Erreur : " + error.message)
+            console.error('Erreur suppression:', error)
+            setError('Impossible de supprimer cette salle.')
         } else {
-            setSalles(prev => prev.filter(s => s.id !== id))
+            setSalles(salles.filter((s) => s.id !== id))
+            setError(null)
         }
     }
 
-    // Préparation de l'édition
-    const handleEdit = (salle: Salle) => {
-        setForm({ nom: salle.nom, capacite: salle.capacite.toString() })
-        setEditingId(salle.id)
+    const handleUpdateSalle = async (e: FormEvent) => {
+        e.preventDefault()
+        if (!editingSalle || !editingSalle.nom.trim()) return
+
+        const { data, error } = await supabase.from('salles').update({
+            nom: editingSalle.nom.trim(),
+            capacite: editingSalle.capacite
+        }).eq('id', editingSalle.id).select()
+        
+        if (error) {
+            console.error('Erreur mise à jour:', error)
+            setError('Erreur lors de la mise à jour.')
+        } else if (data) {
+            setSalles(salles.map(s => s.id === editingSalle.id ? data[0] : s))
+            setEditingSalle(null)
+            setError(null)
+        }
     }
 
-    return (
-        <div className="p-6 max-w-3xl mx-auto">
-            <h1 className="text-2xl font-bold mb-6">Gestion des Salles</h1>
-            <button
-                onClick={() => router.push('/')}
-                className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
-            >
-                ⬅️ Retour à l’accueil
-            </button>
-            {/* Import Excel */}
-            <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Importer un fichier Excel (.xlsx)</label>
-                <input type="file" accept=".xlsx" onChange={handleImport} className="border p-2 rounded" />
+    const renderEditForm = () => (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+            <div className="bg-white p-8 rounded-lg shadow-2xl w-full max-w-md">
+                <h2 className="text-2xl font-bold text-gray-800 mb-6">Modifier la Salle</h2>
+                <form onSubmit={handleUpdateSalle} className="space-y-4">
+                    <input
+                        type="text"
+                        value={editingSalle?.nom || ''}
+                        onChange={(e) => setEditingSalle(editingSalle ? { ...editingSalle, nom: e.target.value } : null)}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        placeholder="Nom de la salle"
+                        required
+                    />
+                    <input
+                        type="number"
+                        value={editingSalle?.capacite || ''}
+                        onChange={(e) => setEditingSalle(editingSalle ? { ...editingSalle, capacite: parseInt(e.target.value) || 0 } : null)}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        placeholder="Capacité"
+                        required
+                    />
+                    <div className="flex justify-end gap-4 mt-6">
+                        <button type="button" onClick={() => setEditingSalle(null)} className="px-6 py-2 rounded-lg text-gray-700 bg-gray-200 hover:bg-gray-300">
+                            Annuler
+                        </button>
+                        <button type="submit" className="px-6 py-2 rounded-lg text-white bg-indigo-600 hover:bg-indigo-700">
+                            Mettre à jour
+                        </button>
+                    </div>
+                </form>
             </div>
+        </div>
+    )
 
-            {/* Formulaire */}
-            <form onSubmit={handleSubmit} className="space-y-4 mb-8">
-                <input
-                    type="text"
-                    placeholder="Nom de la salle"
-                    className="w-full border p-2 rounded"
-                    value={form.nom}
-                    onChange={e => setForm({ ...form, nom: e.target.value })}
-                    required
-                />
-                <input
-                    type="number"
-                    placeholder="Capacité"
-                    className="w-full border p-2 rounded"
-                    value={form.capacite}
-                    onChange={e => setForm({ ...form, capacite: e.target.value })}
-                    required
-                />
-                <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
-                    {editingId ? 'Modifier la salle' : 'Ajouter la salle'}
-                </button>
-                {editingId && (
-                    <button
-                        type="button"
-                        onClick={() => {
-                            setEditingId(null)
-                            setForm({ nom: '', capacite: '' })
-                        }}
-                        className="ml-4 text-sm text-gray-600 underline"
-                    >
-                        Annuler
-                    </button>
-                )}
-            </form>
+    return (
+        <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+            <div className="max-w-4xl mx-auto">
+                <header className="mb-10">
+                    <Link href="/" className="text-indigo-600 hover:text-indigo-800 flex items-center mb-4">
+                        <FaArrowLeft className="mr-2" />
+                        Retour au tableau de bord
+                    </Link>
+                    <div className="flex items-center justify-between">
+                        <h1 className="text-4xl font-bold text-gray-800 flex items-center">
+                            <FaBuilding className="mr-3 text-indigo-500" />
+                            Gestion des Salles
+                        </h1>
+                    </div>
+                </header>
 
-            {/* Tableau des salles */}
-            <table className="w-full border text-sm">
-                <thead className="bg-gray-100">
-                    <tr>
-                        <th className="border px-2 py-1">Nom</th>
-                        <th className="border px-2 py-1">Capacité</th>
-                        <th className="border px-2 py-1">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {salles.map(salle => (
-                        <tr key={salle.id} className="text-center">
-                            <td className="border px-2 py-1">{salle.nom}</td>
-                            <td className="border px-2 py-1">{salle.capacite}</td>
-                            <td className="border px-2 py-1">
-                                <button
-                                    className="text-blue-600 hover:underline mr-2"
-                                    onClick={() => handleEdit(salle)}
-                                >
-                                    Modifier
-                                </button>
-                                <button
-                                    className="text-red-600 hover:underline"
-                                    onClick={() => handleDelete(salle.id)}
-                                >
-                                    Supprimer
-                                </button>
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+                <div className="bg-white p-8 rounded-xl shadow-md mb-8">
+                    <h2 className="text-2xl font-semibold text-gray-700 mb-6">Ajouter une nouvelle salle</h2>
+                    <form onSubmit={handleAddSalle} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <input
+                            type="text"
+                            value={newSalle.nom}
+                            onChange={(e) => setNewSalle({...newSalle, nom: e.target.value})}
+                            placeholder="Nom de la salle"
+                            className="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            required
+                        />
+                        <input
+                            type="number"
+                            value={newSalle.capacite}
+                            onChange={(e) => setNewSalle({...newSalle, capacite: e.target.value})}
+                            placeholder="Capacité"
+                            className="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            required
+                        />
+                        <button type="submit" className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition-colors">
+                            <FaPlus />
+                            Ajouter
+                        </button>
+                    </form>
+                    {error && <p className="text-red-500 mt-4 text-sm">{error}</p>}
+                </div>
+
+                <div className="bg-white rounded-xl shadow-md overflow-hidden">
+                    <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-100">
+                            <tr>
+                                <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
+                                    ID
+                                </th>
+                                <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
+                                    Nom
+                                </th>
+                                <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
+                                    Capacité
+                                </th>
+                                <th scope="col" className="px-6 py-4 text-right text-xs font-bold text-gray-600 uppercase tracking-wider">
+                                    Actions
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                            {loading ? (
+                                <tr>
+                                    <td colSpan={4} className="text-center py-10 text-gray-500">Chargement...</td>
+                                </tr>
+                            ) : salles.length > 0 ? (
+                                salles.map((salle) => (
+                                    <tr key={salle.id} className="hover:bg-gray-50 transition-colors">
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            <div className="text-sm font-medium text-gray-900">{salle.id}</div>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            <div className="text-sm font-medium text-gray-900">{salle.nom}</div>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            <div className="text-sm text-gray-900">{salle.capacite}</div>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                            <button onClick={() => setEditingSalle(salle)} className="text-indigo-600 hover:text-indigo-900 mr-4">
+                                                <FaPencilAlt />
+                                            </button>
+                                            <button onClick={() => handleDeleteSalle(salle.id)} className="text-red-600 hover:text-red-900">
+                                                <FaTrash />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))
+                            ) : (
+                                <tr>
+                                    <td colSpan={4} className="text-center py-10 text-gray-500">Aucune salle trouvée.</td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {editingSalle && renderEditForm()}
         </div>
     )
 }
