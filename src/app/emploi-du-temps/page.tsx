@@ -343,34 +343,34 @@ export default function EmploiDuTempsPage() {
         const filiere = filieres.find(f => f.id === selectedFiliere);
         const section = sections.find(s => s.id === selectedSection);
         const groupe = groupes.find(g => g.id === selectedGroupe);
-
+        
         const html = `
-        <!DOCTYPE html>
+            <!DOCTYPE html>
         <html lang="fr">
-        <head>
-            <meta charset="UTF-8">
+            <head>
+                <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Emploi du Temps</title>
-            <style>
-                body {
-                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                <title>Emploi du Temps</title>
+                <style>
+                    body { 
+                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
                     margin: 0;
-                    padding: 20px;
+                        padding: 20px;
                     background-color: #f5f5f5;
-                }
-                .container {
-                    max-width: 1200px;
-                    margin: 0 auto;
-                    background: white;
+                    }
+                    .container {
+                        max-width: 1200px;
+                        margin: 0 auto;
+                        background: white;
                     border-radius: 8px;
                     box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                    overflow: hidden;
-                }
-                .header {
+                        overflow: hidden;
+                    }
+                    .header { 
                     background: linear-gradient(135deg, #34495e 0%, #2c3e50 100%);
-                    color: white;
+                        color: white;
                     padding: 20px;
-                    text-align: center;
+                        text-align: center; 
                 }
                 .header h1 {
                     margin: 0;
@@ -381,18 +381,18 @@ export default function EmploiDuTempsPage() {
                     margin: 10px 0 0 0;
                     font-size: 16px;
                     font-weight: normal;
-                    opacity: 0.9;
+                        opacity: 0.9;
                 }
                 .timetable {
-                    width: 100%;
-                    border-collapse: collapse;
+                        width: 100%; 
+                        border-collapse: collapse; 
                     margin: 20px 0;
                 }
                 .timetable th {
                     background: #ecf0f1;
                     color: #2c3e50;
                     padding: 12px 8px;
-                    text-align: center;
+                        text-align: center; 
                     font-weight: bold;
                     border: 1px solid #bdc3c7;
                     font-size: 12px;
@@ -405,60 +405,60 @@ export default function EmploiDuTempsPage() {
                     height: 80px;
                     font-size: 11px;
                 }
-                .time-cell {
+                    .time-cell { 
                     background: #f8f9fa;
                     font-weight: bold;
-                    color: #2c3e50;
+                        color: #2c3e50;
                     width: 80px;
-                }
-                .course-cell {
+                    }
+                    .course-cell { 
                     padding: 4px;
                     border-radius: 4px;
                     color: white;
                     font-weight: bold;
                     text-align: left;
                 }
-                .course-type {
+                    .course-type { 
                     font-size: 10px;
                     margin-bottom: 2px;
                     text-align: center;
                 }
-                .course-name {
+                    .course-name { 
                     font-size: 10px;
                     margin-bottom: 2px;
                     font-weight: bold;
                 }
-                .course-teacher {
+                    .course-teacher { 
                     font-size: 9px;
-                    margin-bottom: 2px;
-                }
-                .course-room {
+                        margin-bottom: 2px;
+                    }
+                    .course-room { 
                     font-size: 9px;
                     font-weight: bold;
                 }
                 .empty-cell {
                     background: #f8f9fa;
-                    color: #95a5a6;
+                        color: #95a5a6;
                     font-style: italic;
-                }
-                .legend {
+                    }
+                    .legend { 
                     background: #f8f9fa;
                     padding: 15px;
                     border-top: 1px solid #bdc3c7;
                 }
                 .legend h3 {
                     margin: 0 0 10px 0;
-                    color: #2c3e50;
+                        color: #2c3e50;
                     font-size: 14px;
-                }
-                .legend-items {
-                    display: flex;
+                    }
+                    .legend-items { 
+                        display: flex; 
                     gap: 30px;
-                    flex-wrap: wrap;
-                }
-                .legend-item {
-                    display: flex;
-                    align-items: center;
+                        flex-wrap: wrap;
+                    }
+                    .legend-item {
+                        display: flex;
+                        align-items: center;
                     gap: 8px;
                     font-size: 12px;
                 }
@@ -474,30 +474,30 @@ export default function EmploiDuTempsPage() {
                     font-size: 11px;
                     border-top: 1px solid #bdc3c7;
                 }
-                @media print {
+                    @media print { 
                     body { margin: 0; padding: 0; background: white; }
                     .container { box-shadow: none; border-radius: 0; }
-                }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
                     <h1>EMPLOI DU TEMPS</h1>
                     <h2>${filiere ? filiere.nom : ''} - ${section ? section.nom : ''}${groupe ? ` - ${groupe.nom}` : ''}</h2>
-                </div>
-                
+                    </div>
+                    
                 <table class="timetable">
-                    <thead>
-                        <tr>
-                            <th>Horaire</th>
+                            <thead>
+                                <tr>
+                                    <th>Horaire</th>
                             ${DAYS.map(day => {
                                 const date = weekStart.clone().add(DAYS.indexOf(day), 'days').format('DD/MM');
                                 return `<th>${day}<br><small>${date}</small></th>`;
                             }).join('')}
-                        </tr>
-                    </thead>
-                    <tbody>
+                                </tr>
+                            </thead>
+                            <tbody>
                         ${TIME_SLOT_LABELS.map((slot, timeIndex) => {
                             const gridTimeIndex = timeIndex;
                             return `
@@ -510,7 +510,7 @@ export default function EmploiDuTempsPage() {
                                             const bgColor = event.type === 'CM' ? '#e74c3c' :
                                                            event.type === 'TD' ? '#e67e22' :
                                                            event.type === 'TP' ? '#3498db' : '#27ae60';
-                                            return `
+                                                return `
                                                 <td>
                                                     <div class="course-cell" style="background: ${bgColor};">
                                                         <div class="course-type">${event.type}</div>
@@ -518,42 +518,42 @@ export default function EmploiDuTempsPage() {
                                                         <div class="course-teacher">${event.enseignants?.nom || ''}</div>
                                                         <div class="course-room">${event.salles?.nom || ''}</div>
                                                     </div>
-                                                </td>
+                                                    </td>
                                             `;
-                                        } else {
+                                            } else {
                                             return '<td class="empty-cell">Libre</td>';
-                                        }
-                                    }).join('')}
-                                </tr>
+                                            }
+                                        }).join('')}
+                                    </tr>
                             `;
                         }).join('')}
-                    </tbody>
-                </table>
-                
-                <div class="legend">
+                            </tbody>
+                        </table>
+                        
+                        <div class="legend">
                     <h3>Légende :</h3>
-                    <div class="legend-items">
+                            <div class="legend-items">
                         <div class="legend-item">
                             <div class="legend-color" style="background: #e74c3c;"></div>
-                            <span>CM - Cours Magistral</span>
-                        </div>
+                                    <span>CM - Cours Magistral</span>
+                                </div>
                         <div class="legend-item">
                             <div class="legend-color" style="background: #e67e22;"></div>
-                            <span>TD - Travaux Dirigés</span>
-                        </div>
+                                    <span>TD - Travaux Dirigés</span>
+                                </div>
                         <div class="legend-item">
                             <div class="legend-color" style="background: #3498db;"></div>
-                            <span>TP - Travaux Pratiques</span>
+                                    <span>TP - Travaux Pratiques</span>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                </div>
                 
                 <div class="footer">
                     Généré le ${moment().format('DD/MM/YYYY à HH:mm')}
+                    </div>
                 </div>
-            </div>
-        </body>
-        </html>
+            </body>
+            </html>
         `;
 
         const blob = new Blob([html], { type: 'text/html' });
@@ -767,20 +767,20 @@ export default function EmploiDuTempsPage() {
                     </div>
 
                     <div className="flex items-center gap-4">
-                        <button
+                  <button
                             onClick={handleGenerate}
                             disabled={loading || !selectedSection}
                             className="bg-purple-600 text-white font-bold px-4 py-2 rounded hover:bg-purple-700 disabled:bg-gray-400"
-                        >
+                  >
                             {loading ? 'Génération...' : 'Générer Planning'}
-                        </button>
+                  </button>
                         <div className="flex gap-2">
                             <button onClick={exportToExcel} disabled={!selectedSection} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 disabled:bg-gray-400">Excel</button>
                             <button onClick={exportToPDF} disabled={!selectedSection} className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 disabled:bg-gray-400">PDF</button>
                             <button onClick={exportToHTML} disabled={!selectedSection} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:bg-gray-400">HTML</button>
-                    </div>
-                    </div>
+            </div>
                 </div>
+            </div>
 
                 {message && <p className="mb-4 text-center font-semibold">{message}</p>}
 
@@ -792,7 +792,7 @@ export default function EmploiDuTempsPage() {
                 onDoubleClickEvent={handleDoubleClickEvent}
                         startAccessor={(event: CalendarEvent) => event.start}
                         endAccessor={(event: CalendarEvent) => event.end}
-                        resizable
+                resizable
                         draggableAccessor={() => true}
                         views={['month', 'week', 'day']}
                         view={currentView}
@@ -812,7 +812,7 @@ export default function EmploiDuTempsPage() {
                         max={new Date(0, 0, 0, 19, 0, 0)}
                     />
                             </div>
+                            </div>
                         </div>
-        </div>
     );
 }

@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect, FormEvent } from 'react'
+import { useState, useEffect, FormEvent, ChangeEvent } from 'react'
 import { supabase } from '@/src/lib/supabaseClient'
 import Link from 'next/link'
-import { FaUniversity, FaPlus, FaTrash, FaPencilAlt, FaArrowLeft } from 'react-icons/fa'
+import { FaUniversity, FaPlus, FaTrash, FaPencilAlt, FaArrowLeft, FaFileExcel } from 'react-icons/fa'
+import * as XLSX from 'xlsx'
 
 interface Filiere {
     id: string
@@ -28,6 +29,7 @@ export default function FilieresPage() {
             console.error('Erreur de chargement:', error)
             setError('Impossible de charger les filières.')
         } else {
+            console.log('Filières existantes:', data)
             setFilieres(data)
             setError(null)
         }
@@ -77,6 +79,71 @@ export default function FilieresPage() {
         }
     }
 
+    const handleImportExcel = async (e: ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+
+        try {
+            const reader = new FileReader()
+            reader.onload = async (e) => {
+                try {
+                    const data = e.target?.result
+                    if (!data) {
+                        setError('Erreur: Fichier vide')
+                        return
+                    }
+                    
+                    const workbook = XLSX.read(data, { type: 'binary' })
+                    const sheetName = workbook.SheetNames[0]
+                    const sheet = workbook.Sheets[sheetName]
+                    const jsonData = XLSX.utils.sheet_to_json<{ nom: string }>(sheet)
+                    
+                    console.log('Données lues du fichier Excel:', jsonData)
+
+                    if (jsonData.length === 0) {
+                        setError('Erreur: Aucune donnée trouvée dans le fichier')
+                        return
+                    }
+
+                    for (const row of jsonData) {
+                        if (!row.nom) {
+                            console.error('Ligne invalide:', row)
+                            continue
+                        }
+
+                        const { data: insertData, error } = await supabase
+                            .from('filieres')
+                            .insert([{ nom: row.nom.trim() }])
+                            .select()
+
+                        if (error) {
+                            console.error('Erreur détaillée:', {
+                                error,
+                                message: error.message,
+                                details: error.details,
+                                data: row
+                            })
+                            setError(`Erreur lors de l'importation: ${error.message || error.details || 'Erreur inconnue'}`)
+                        } else {
+                            console.log('Insertion réussie:', insertData)
+                        }
+                    }
+                    
+                    // Rafraîchir la liste après l'importation
+                    await fetchFilieres()
+                    setError(null)
+                } catch (err) {
+                    console.error('Erreur lors du traitement:', err)
+                    setError('Erreur lors du traitement du fichier Excel')
+                }
+            }
+            reader.readAsBinaryString(file)
+        } catch (error) {
+            console.error('Erreur lors de la lecture du fichier:', error)
+            setError('Erreur lors de la lecture du fichier Excel')
+        }
+    }
+
     const renderEditForm = () => (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
             <div className="bg-white p-8 rounded-lg shadow-2xl w-full max-w-md">
@@ -115,6 +182,22 @@ export default function FilieresPage() {
                             <FaUniversity className="mr-3 text-indigo-500" />
                             Gestion des Filières
                         </h1>
+                        <div className="relative">
+                            <input
+                                type="file"
+                                accept=".xlsx,.xls"
+                                onChange={handleImportExcel}
+                                className="hidden"
+                                id="excel-upload"
+                            />
+                            <label
+                                htmlFor="excel-upload"
+                                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer"
+                            >
+                                <FaFileExcel />
+                                Importer Excel
+                            </label>
+                        </div>
                     </div>
                 </header>
 

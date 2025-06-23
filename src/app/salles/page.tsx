@@ -1,14 +1,20 @@
 'use client'
 
-import { useState, useEffect, FormEvent } from 'react'
+import { useState, useEffect, FormEvent, ChangeEvent } from 'react'
 import { supabase } from '@/src/lib/supabaseClient'
 import Link from 'next/link'
-import { FaBuilding, FaPlus, FaTrash, FaPencilAlt, FaArrowLeft } from 'react-icons/fa'
+import { FaBuilding, FaPlus, FaTrash, FaPencilAlt, FaArrowLeft, FaFileExcel } from 'react-icons/fa'
+import * as XLSX from 'xlsx'
 
 interface Salle {
     id: number
     nom: string
     capacite: number
+}
+
+interface ExcelRow {
+    nom: string;
+    capacite: number;
 }
 
 export default function SallesPage() {
@@ -25,7 +31,7 @@ export default function SallesPage() {
     const fetchSalles = async () => {
         setLoading(true)
         const { data, error } = await supabase.from('salles').select('*').order('nom', { ascending: true })
-        if (error) {
+            if (error) {
             console.error('Erreur de chargement:', error)
             setError('Impossible de charger les salles.')
         } else {
@@ -39,15 +45,15 @@ export default function SallesPage() {
         e.preventDefault()
         if (!newSalle.nom.trim() || !newSalle.capacite.trim()) {
             setError('Le nom et la capacité sont obligatoires.')
-            return
-        }
+                return
+            }
 
         const { data, error } = await supabase.from('salles').insert([{
             nom: newSalle.nom.trim(),
             capacite: parseInt(newSalle.capacite)
         }]).select()
-        
-        if (error) {
+
+            if (error) {
             console.error('Erreur ajout:', error)
             setError('Erreur lors de l\'ajout de la salle.')
         } else if (data) {
@@ -86,6 +92,40 @@ export default function SallesPage() {
             setSalles(salles.map(s => s.id === editingSalle.id ? data[0] : s))
             setEditingSalle(null)
             setError(null)
+        }
+    }
+
+    const handleImportExcel = async (e: ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+
+        try {
+            const reader = new FileReader()
+            reader.onload = async (e) => {
+                const data = e.target?.result
+                const workbook = XLSX.read(data, { type: 'binary' })
+                const sheetName = workbook.SheetNames[0]
+                const sheet = workbook.Sheets[sheetName]
+                const jsonData = XLSX.utils.sheet_to_json<ExcelRow>(sheet)
+
+                for (const row of jsonData) {
+                    const { error } = await supabase
+                        .from('salles')
+                        .insert([{ 
+                            nom: row.nom,
+                            capacite: row.capacite
+                        }])
+                    if (error) {
+                        console.error('Erreur lors de l\'importation:', error)
+                        setError('Erreur lors de l\'importation des données')
+                    }
+                }
+                fetchSalles()
+            }
+            reader.readAsBinaryString(file)
+        } catch (error) {
+            console.error('Erreur lors de la lecture du fichier:', error)
+            setError('Erreur lors de la lecture du fichier Excel')
         }
     }
 
@@ -136,40 +176,56 @@ export default function SallesPage() {
                             <FaBuilding className="mr-3 text-indigo-500" />
                             Gestion des Salles
                         </h1>
-                    </div>
+                        <div className="relative">
+                            <input
+                                type="file"
+                                accept=".xlsx,.xls"
+                                onChange={handleImportExcel}
+                                className="hidden"
+                                id="excel-upload"
+                            />
+                            <label
+                                htmlFor="excel-upload"
+                                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer"
+                            >
+                                <FaFileExcel />
+                                Importer Excel
+                            </label>
+                        </div>
+            </div>
                 </header>
 
                 <div className="bg-white p-8 rounded-xl shadow-md mb-8">
                     <h2 className="text-2xl font-semibold text-gray-700 mb-6">Ajouter une nouvelle salle</h2>
                     <form onSubmit={handleAddSalle} className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <input
-                            type="text"
+                <input
+                    type="text"
                             value={newSalle.nom}
                             onChange={(e) => setNewSalle({...newSalle, nom: e.target.value})}
-                            placeholder="Nom de la salle"
+                    placeholder="Nom de la salle"
                             className="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                            required
-                        />
-                        <input
-                            type="number"
+                    required
+                />
+                <input
+                    type="number"
                             value={newSalle.capacite}
                             onChange={(e) => setNewSalle({...newSalle, capacite: e.target.value})}
-                            placeholder="Capacité"
+                    placeholder="Capacité"
                             className="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                            required
-                        />
+                    required
+                />
                         <button type="submit" className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition-colors">
                             <FaPlus />
                             Ajouter
-                        </button>
-                    </form>
+                    </button>
+            </form>
                     {error && <p className="text-red-500 mt-4 text-sm">{error}</p>}
                 </div>
 
                 <div className="bg-white rounded-xl shadow-md overflow-hidden">
                     <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-100">
-                            <tr>
+                <thead className="bg-gray-100">
+                    <tr>
                                 <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
                                     ID
                                 </th>
@@ -182,8 +238,8 @@ export default function SallesPage() {
                                 <th scope="col" className="px-6 py-4 text-right text-xs font-bold text-gray-600 uppercase tracking-wider">
                                     Actions
                                 </th>
-                            </tr>
-                        </thead>
+                    </tr>
+                </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
                             {loading ? (
                                 <tr>
@@ -204,20 +260,20 @@ export default function SallesPage() {
                                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                             <button onClick={() => setEditingSalle(salle)} className="text-indigo-600 hover:text-indigo-900 mr-4">
                                                 <FaPencilAlt />
-                                            </button>
+                                </button>
                                             <button onClick={() => handleDeleteSalle(salle.id)} className="text-red-600 hover:text-red-900">
                                                 <FaTrash />
-                                            </button>
-                                        </td>
-                                    </tr>
+                                </button>
+                            </td>
+                        </tr>
                                 ))
                             ) : (
                                 <tr>
                                     <td colSpan={4} className="text-center py-10 text-gray-500">Aucune salle trouvée.</td>
                                 </tr>
                             )}
-                        </tbody>
-                    </table>
+                </tbody>
+            </table>
                 </div>
             </div>
             {editingSalle && renderEditForm()}

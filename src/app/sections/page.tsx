@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect, FormEvent } from 'react'
+import { useState, useEffect, FormEvent, ChangeEvent } from 'react'
 import { supabase } from '@/src/lib/supabaseClient'
 import Link from 'next/link'
-import { FaLayerGroup, FaPlus, FaTrash, FaPencilAlt, FaArrowLeft } from 'react-icons/fa'
+import { FaLayerGroup, FaPlus, FaTrash, FaPencilAlt, FaArrowLeft, FaFileExcel } from 'react-icons/fa'
+import * as XLSX from 'xlsx'
 
 interface Filiere {
     id: number
@@ -15,6 +16,11 @@ interface Section {
     nom: string
     filiere_id: number
     filieres: { nom: string }
+}
+
+interface ExcelRow {
+    nom: string;
+    filiere_id: number;
 }
 
 export default function SectionsPage() {
@@ -120,6 +126,54 @@ export default function SectionsPage() {
         }
     }
 
+    const handleImportExcel = async (e: ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+
+        try {
+            const reader = new FileReader()
+            reader.onload = async (e) => {
+                const data = e.target?.result
+                const workbook = XLSX.read(data, { type: 'binary' })
+                const sheetName = workbook.SheetNames[0]
+                const sheet = workbook.Sheets[sheetName]
+                const jsonData = XLSX.utils.sheet_to_json<{ nom: string, filiere_nom: string }>(sheet)
+
+                // Récupère toutes les filières existantes
+                const { data: filieres, error: filieresError } = await supabase.from('filieres').select('*')
+                if (filieresError) {
+                    setError('Erreur lors de la récupération des filières')
+                    return
+                }
+
+                for (const row of jsonData) {
+                    if (!row.nom || !row.filiere_nom) continue
+
+                    // Trouve l'ID de la filière à partir du nom
+                    const filiere = filieres.find(f => f.nom.trim().toLowerCase() === row.filiere_nom.trim().toLowerCase())
+                    if (!filiere) {
+                        console.error(`Filière non trouvée pour la section ${row.nom}: ${row.filiere_nom}`)
+                        setError(`Filière non trouvée: ${row.filiere_nom}`)
+                        continue
+                    }
+
+                    const { error } = await supabase
+                        .from('sections')
+                        .insert([{ nom: row.nom, filiere_id: filiere.id }])
+                    if (error) {
+                        console.error('Erreur lors de l\'importation:', error, row)
+                        setError('Erreur lors de l\'importation des données')
+                    }
+                }
+                fetchSections()
+            }
+            reader.readAsBinaryString(file)
+        } catch (error) {
+            console.error('Erreur lors de la lecture du fichier:', error)
+            setError('Erreur lors de la lecture du fichier Excel')
+        }
+    }
+
     const renderEditForm = () => (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
             <div className="bg-white p-8 rounded-lg shadow-2xl w-full max-w-md">
@@ -170,6 +224,22 @@ export default function SectionsPage() {
                             <FaLayerGroup className="mr-3 text-indigo-500" />
                             Gestion des Sections
                         </h1>
+                        <div className="relative">
+                            <input
+                                type="file"
+                                accept=".xlsx,.xls"
+                                onChange={handleImportExcel}
+                                className="hidden"
+                                id="excel-upload"
+                            />
+                            <label
+                                htmlFor="excel-upload"
+                                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer"
+                            >
+                                <FaFileExcel />
+                                Importer Excel
+                            </label>
+                        </div>
                     </div>
                 </header>
 

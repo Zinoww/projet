@@ -1,15 +1,22 @@
 'use client'
 
-import { useState, useEffect, FormEvent } from 'react'
+import { useState, useEffect, FormEvent, ChangeEvent } from 'react'
 import { supabase } from '@/src/lib/supabaseClient'
 import Link from 'next/link'
-import { FaChalkboardTeacher, FaPlus, FaTrash, FaPencilAlt, FaArrowLeft } from 'react-icons/fa'
+import { FaChalkboardTeacher, FaPlus, FaTrash, FaPencilAlt, FaArrowLeft, FaFileExcel } from 'react-icons/fa'
+import * as XLSX from 'xlsx'
 
 interface Enseignant {
     id: string
     nom: string | null
     email: string
     heures_travail: string | null
+}
+
+interface ExcelRow {
+    nom: string;
+    email: string;
+    heures_travail?: string;
 }
 
 export default function EnseignantsPage() {
@@ -63,7 +70,7 @@ export default function EnseignantsPage() {
         if (!confirm('Êtes-vous sûr de vouloir supprimer cet enseignant ?')) return
 
         const { error } = await supabase.from('enseignants').delete().eq('id', id)
-        if (error) {
+            if (error) {
             console.error('Erreur suppression:', error)
             setError('Impossible de supprimer cet enseignant.')
         } else {
@@ -74,14 +81,19 @@ export default function EnseignantsPage() {
 
     const handleUpdateEnseignant = async (e: FormEvent) => {
         e.preventDefault()
-        if (!editingEnseignant || !editingEnseignant.nom.trim() || !editingEnseignant.email.trim()) return
+        if (
+            !editingEnseignant ||
+            !editingEnseignant.nom ||
+            !editingEnseignant.nom.trim() ||
+            !editingEnseignant.email ||
+            !editingEnseignant.email.trim()
+        ) return
 
         const { data, error } = await supabase.from('enseignants').update({
-            nom: editingEnseignant.nom.trim(),
-            email: editingEnseignant.email.trim(),
+            nom: editingEnseignant.nom!.trim(),
+            email: editingEnseignant.email!.trim(),
             heures_travail: editingEnseignant.heures_travail?.trim() || null
         }).eq('id', editingEnseignant.id).select()
-        
         if (error) {
             console.error('Erreur mise à jour:', error)
             setError('Erreur lors de la mise à jour.')
@@ -89,6 +101,41 @@ export default function EnseignantsPage() {
             setEnseignants(enseignants.map(e => e.id === editingEnseignant.id ? data[0] : e))
             setEditingEnseignant(null)
             setError(null)
+        }
+    }
+
+    const handleImportExcel = async (e: ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+
+        try {
+        const reader = new FileReader()
+            reader.onload = async (e) => {
+                const data = e.target?.result
+                const workbook = XLSX.read(data, { type: 'binary' })
+                const sheetName = workbook.SheetNames[0]
+                const sheet = workbook.Sheets[sheetName]
+                const jsonData = XLSX.utils.sheet_to_json<ExcelRow>(sheet)
+
+                for (const row of jsonData) {
+                    const { error } = await supabase
+                        .from('enseignants')
+                        .insert([{ 
+                            nom: row.nom,
+                            email: row.email,
+                            heures_travail: row.heures_travail || null
+                        }])
+                    if (error) {
+                        console.error('Erreur lors de l\'importation:', error)
+                        setError('Erreur lors de l\'importation des données')
+                    }
+                }
+                fetchEnseignants()
+            }
+            reader.readAsBinaryString(file)
+        } catch (error) {
+            console.error('Erreur lors de la lecture du fichier:', error)
+            setError('Erreur lors de la lecture du fichier Excel')
         }
     }
 
@@ -146,49 +193,65 @@ export default function EnseignantsPage() {
                             <FaChalkboardTeacher className="mr-3 text-indigo-500" />
                             Gestion des Enseignants
                         </h1>
+                        <div className="relative">
+                            <input
+                                type="file"
+                                accept=".xlsx,.xls"
+                                onChange={handleImportExcel}
+                                className="hidden"
+                                id="excel-upload"
+                            />
+                            <label
+                                htmlFor="excel-upload"
+                                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer"
+                            >
+                                <FaFileExcel />
+                                Importer Excel
+                            </label>
+                        </div>
                     </div>
                 </header>
 
                 <div className="bg-white p-8 rounded-xl shadow-md mb-8">
                     <h2 className="text-2xl font-semibold text-gray-700 mb-6">Ajouter un nouvel enseignant</h2>
                     <form onSubmit={handleAddEnseignant} className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <input
-                            type="text"
+                <input
+                    type="text"
                             value={newEnseignant.nom}
                             onChange={(e) => setNewEnseignant({...newEnseignant, nom: e.target.value})}
                             placeholder="Nom de l'enseignant"
                             className="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                            required
-                        />
-                        <input
-                            type="email"
+                    required
+                />
+                <input
+                    type="email"
                             value={newEnseignant.email}
                             onChange={(e) => setNewEnseignant({...newEnseignant, email: e.target.value})}
-                            placeholder="Email"
+                    placeholder="Email"
                             className="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                            required
-                        />
+                    required
+                />
                         <div className="flex gap-2">
-                            <input
+                <input
                                 type="text"
                                 value={newEnseignant.heures_travail}
                                 onChange={(e) => setNewEnseignant({...newEnseignant, heures_travail: e.target.value})}
-                                placeholder="Heures de travail"
+                    placeholder="Heures de travail"
                                 className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                             />
                             <button type="submit" className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition-colors">
                                 <FaPlus />
                                 Ajouter
-                            </button>
+                </button>
                         </div>
-                    </form>
+            </form>
                     {error && <p className="text-red-500 mt-4 text-sm">{error}</p>}
                 </div>
 
                 <div className="bg-white rounded-xl shadow-md overflow-hidden">
                     <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-100">
-                            <tr>
+                <thead className="bg-gray-100">
+                    <tr>
                                 <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
                                     Nom
                                 </th>
@@ -201,8 +264,8 @@ export default function EnseignantsPage() {
                                 <th scope="col" className="px-6 py-4 text-right text-xs font-bold text-gray-600 uppercase tracking-wider">
                                     Actions
                                 </th>
-                            </tr>
-                        </thead>
+                    </tr>
+                </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
                             {loading ? (
                                 <tr>
@@ -223,20 +286,20 @@ export default function EnseignantsPage() {
                                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                             <button onClick={() => setEditingEnseignant(enseignant)} className="text-indigo-600 hover:text-indigo-900 mr-4">
                                                 <FaPencilAlt />
-                                            </button>
+                                </button>
                                             <button onClick={() => handleDeleteEnseignant(enseignant.id)} className="text-red-600 hover:text-red-900">
                                                 <FaTrash />
-                                            </button>
-                                        </td>
-                                    </tr>
+                                </button>
+                            </td>
+                        </tr>
                                 ))
                             ) : (
                                 <tr>
                                     <td colSpan={4} className="text-center py-10 text-gray-500">Aucun enseignant trouvé.</td>
                                 </tr>
                             )}
-                        </tbody>
-                    </table>
+                </tbody>
+            </table>
                 </div>
             </div>
             {editingEnseignant && renderEditForm()}
