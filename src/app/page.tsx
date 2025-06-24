@@ -1,6 +1,6 @@
 'use client'
 import Link from 'next/link';
-import { FaBook, FaChalkboardTeacher, FaDoorOpen, FaUniversity, FaUsers, FaCalendarAlt, FaClock, FaLayerGroup } from 'react-icons/fa';
+import { FaBook, FaChalkboardTeacher, FaDoorOpen, FaUniversity, FaUsers, FaClock, FaLayerGroup, FaClipboardList } from 'react-icons/fa';
 import { supabase } from '@/src/lib/supabaseClient';
 import { useEffect, useState, ReactNode } from 'react';
 
@@ -71,13 +71,13 @@ export default function HomePage() {
     { href: '/groupes', icon: <FaUsers />, title: 'Gestion des Groupes', description: 'Définissez les groupes d\'étudiants pour les cours.' },
     { href: '/enseignants', icon: <FaChalkboardTeacher />, title: 'Gestion des Enseignants', description: 'Ajoutez et mettez à jour les profils des enseignants.' },
     { href: '/cours', icon: <FaBook />, title: 'Gestion des Cours', description: 'Administrez le catalogue des matières et cours.' },
+    { href: '/seances', icon: <FaClipboardList />, title: 'Gestion des Séances', description: 'Définissez les séances de cours (CM, TD, TP) pour chaque module.' },
     { href: '/salles', icon: <FaDoorOpen />, title: 'Gestion des Salles', description: 'Gérez les salles de cours et leurs capacités.' },
   ];
-  
+
   const toolLinks = [
-      { href: '/emploi-du-temps', icon: <FaClock />, title: 'Emploi du temps', description: 'Générez, visualisez et modifiez l\'emploi du temps.' },
-      { href: '/calendrier', icon: <FaCalendarAlt />, title: 'Calendrier', description: 'Consultez une vue d\'ensemble du planning.' },
-  ]
+    { href: '/emploi-du-temps', icon: <FaClock />, title: 'Emploi du temps', description: "Générez, visualisez et modifiez l'emploi du temps." }
+  ];
 
   return (
     <div className="min-h-screen bg-gray-50">

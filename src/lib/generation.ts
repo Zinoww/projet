@@ -1,17 +1,41 @@
 import { supabase } from '@/src/lib/supabaseClient'
 
+// --- 1. TYPE DEFINITIONS ---
 
-export type Session = {
-    cours_id: string
-    salle_id: string
-    enseignant_id: string | null
-    date: string
-    heure_debut: string
-    heure_fin: string
-    type: 'Cours' | 'TD' | 'TP'
+interface Seance {
+    id: string;
+    duree_minutes: number;
+    cours_id: string;
+    type_id: string;
+    groupe_id: string;
+    enseignant_id: string | null;
+    // Relations
+    enseignants: { id: string, nom: string, disponibilites: any }[] | null;
+    groupes: { id: string, nom: string, section_id: string }[];
 }
 
-function shuffle(array: any[]) {
+interface Salle {
+    id: string;
+    nom: string;
+    capacite: number | null;
+}
+
+interface Creneau {
+    debut: string; // "HH:mm:ss"
+    fin: string;
+}
+
+interface EmploiDuTempsItem {
+    seance_id: string;
+    jour: string;
+    heure_debut: string;
+    heure_fin: string;
+    salle_id: string;
+}
+
+// --- 2. HELPER FUNCTIONS ---
+
+function shuffle<T>(array: T[]): T[] {
     for (let i = array.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [array[i], array[j]] = [array[j], array[i]];
@@ -19,113 +43,170 @@ function shuffle(array: any[]) {
     return array;
 }
 
-export async function genererEmploiDuTemps(
-    setMessage: (msg: string) => void, 
-    sectionId: string
-): Promise<Session[]> {
-    setMessage('Génération en cours...')
+// Ajout d'une fonction utilitaire pour vérifier la présence d'une entité
+function assertDefined<T>(value: T | undefined | null, message: string): T {
+  if (value === undefined || value === null) {
+    throw new Error(message);
+  }
+  return value;
+}
 
-    // Récupérer uniquement les cours de la section spécifiée
-    const { data: rawCours, error: coursError } = await supabase
-        .from('cours')
-        .select('*, enseignant_id, groupes!inner(section_id)')
+// --- 3. CORE GENERATION LOGIC ---
+
+export async function genererEmploiDuTemps(
+    sectionId: string, 
+    setMessage: (msg: string) => void
+): Promise<boolean> {
+    
+    // --- Étape 1: Récupération des données ---
+    setMessage('1/5 - Récupération des données...');
+
+    // a. Récupérer toutes les séances pour les groupes de la section spécifiée
+    const { data: seances, error: seancesError } = await supabase
+        .from('seances')
+        .select(`
+            id, duree_minutes, cours_id, type_id, groupe_id, enseignant_id,
+            enseignants (id, nom, disponibilites),
+            groupes!inner (id, nom, section_id)
+        `)
         .eq('groupes.section_id', sectionId);
 
-    if (coursError) {
-        setMessage(`Erreur lors de la récupération des cours: ${coursError.message}`);
-        return [];
+    if (seancesError || !seances || seances.length === 0) {
+        setMessage(`Erreur ou aucune séance à planifier pour cette section. ${seancesError?.message || ''}`);
+        return false;
     }
 
-    const { data: salles } = await supabase.from('salles').select('*')
-
-    if (!rawCours || !salles || rawCours.length === 0) {
-        setMessage("Aucun cours ou aucune salle disponible pour cette section.")
-        return []
-    }
-    
-    const cours = shuffle([...rawCours]);
-
-    // Générer les dates de la semaine actuelle (lundi à vendredi)
-    const today = new Date();
-    const monday = new Date(today);
-    monday.setDate(today.getDate() - today.getDay() + 1); // Lundi de cette semaine
-    
-    const jours: string[] = [];
-    for (let i = 0; i < 5; i++) {
-        const date = new Date(monday);
-        date.setDate(monday.getDate() + i);
-        jours.push(date.toISOString().split('T')[0]); // Format YYYY-MM-DD
+    // b. Récupérer toutes les salles
+    const { data: salles, error: sallesError } = await supabase.from('salles').select('id, nom, capacite');
+    if (sallesError || !salles || salles.length === 0) {
+        setMessage(`Erreur ou aucune salle disponible. ${sallesError?.message || ''}`);
+        return false;
     }
 
-    const creneaux = ['08:00', '09:30', '11:00', '13:30', '15:00']
+    // --- Étape 2: Initialisation ---
+    setMessage('2/5 - Initialisation du planning...');
+    const jours = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi'];
+    const creneaux: Creneau[] = [
+        { debut: '08:00:00', fin: '09:30:00' },
+        { debut: '09:30:00', fin: '11:00:00' },
+        { debut: '11:00:00', fin: '12:30:00' },
+        { debut: '13:30:00', fin: '15:00:00' },
+        { debut: '15:00:00', fin: '16:30:00' }
+    ];
 
-    const emplois: Session[] = []
+    const planning: EmploiDuTempsItem[] = [];
+    const seancesAPlacer = shuffle(seances as Seance[]);
 
-    const estValide = (salleId: string, enseignantId: string | null, date: string, heure: string) => {
-        // Vérifie si la salle est occupée
-        const salleOccupee = emplois.some(e =>
-            e.salle_id === salleId &&
-            e.date === date &&
-            e.heure_debut === heure
-        );
-        if (salleOccupee) return false;
+    // --- Fonction de validation ---
+    const estValide = (seance: Seance, jour: string, creneau: Creneau, salle: Salle): boolean => {
+        // Contrainte 1: Le groupe de la séance est-il déjà occupé ?
+        const groupeOccupe = planning.some(p => {
+            const seancePlanifiee = seancesAPlacer.find(s => s.id === p.seance_id);
+            return seancePlanifiee?.groupe_id === seance.groupe_id && p.jour === jour && p.heure_debut === creneau.debut;
+        });
+        if (groupeOccupe) return false;
 
-        // Vérifie si l'enseignant est déjà occupé
-        if (enseignantId) {
-            const enseignantOccupe = emplois.some(e => {
-                const coursSession = cours?.find(c => c.id === e.cours_id);
-                return coursSession?.enseignant_id === enseignantId &&
-                       e.date === date &&
-                       e.heure_debut === heure;
+        // Contrainte 2: L'enseignant est-il déjà occupé ?
+        if (seance.enseignant_id) {
+            const enseignantOccupe = planning.some(p => {
+                const seancePlanifiee = seancesAPlacer.find(s => s.id === p.seance_id);
+                return seancePlanifiee?.enseignant_id === seance.enseignant_id && p.jour === jour && p.heure_debut === creneau.debut;
             });
             if (enseignantOccupe) return false;
         }
 
+        // Contrainte 3: La salle est-elle déjà occupée ?
+        const salleOccupee = planning.some(p => p.salle_id === salle.id && p.jour === jour && p.heure_debut === creneau.debut);
+        if (salleOccupee) return false;
+        
+        // TODO: Ajouter la vérification des disponibilités JSON de l'enseignant
+        // TODO: Ajouter la vérification de la capacité de la salle
+
         return true;
     }
 
-    const backtrack = (index: number): boolean => {
-        if (!cours || !salles) return false
-        if (index === cours.length) return true
+    // --- Étape 3: Algorithme de Backtracking ---
+    setMessage('3/5 - Recherche d\'une solution...');
+    const solve = (seanceIndex: number): boolean => {
+        if (seanceIndex >= seancesAPlacer.length) {
+            return true; // Toutes les séances sont placées
+        }
 
-        const coursActuel = cours[index]
+        const seanceActuelle = seancesAPlacer[seanceIndex];
 
-        for (let jour of shuffle([...jours])) {
-            for (let heure of shuffle([...creneaux])) {
-                for (let salle of shuffle([...salles])) {
-                    if (estValide(salle.id, coursActuel.enseignant_id, jour, heure)) {
-                        emplois.push({
-                            cours_id: coursActuel.id,
-                            salle_id: salle.id,
-                            enseignant_id: coursActuel.enseignant_id,
-                            date: jour,
-                            type: coursActuel.type,
-                            heure_debut: heure,
-                            heure_fin:
-                                heure === '08:00' ? '09:30' :
-                                    heure === '09:30' ? '11:00' :
-                                        heure === '11:00' ? '12:30' :
-                                            heure === '13:30' ? '15:00' : '16:30'
-                        })
+        for (const jour of shuffle(jours)) {
+            for (const creneau of shuffle(creneaux)) {
+                for (const salle of shuffle(salles)) {
+                    if (estValide(seanceActuelle, jour, creneau, salle)) {
+                        planning.push({
+                            seance_id: seanceActuelle.id,
+                            jour: jour,
+                            heure_debut: creneau.debut,
+                            heure_fin: creneau.fin,
+                            salle_id: salle.id
+                        });
 
-                        if (backtrack(index + 1)) return true
+                        if (solve(seanceIndex + 1)) {
+                            return true; // Solution trouvée
+                        }
 
-                        emplois.pop()
+                        planning.pop(); // Backtrack
                     }
                 }
             }
         }
 
-        return false
+        return false; // Aucune solution trouvée pour cette branche
     }
 
-    const success = backtrack(0)
+    const success = solve(0);
 
     if (!success) {
-        setMessage('Impossible de générer un planning valide.')
-        return []
+        setMessage('Échec : Impossible de générer un emploi du temps avec les contraintes actuelles.');
+        return false;
     }
 
-    // Si on veut que l'appelant insère lui-même dans Supabase :
-    return emplois
+    // --- Étape 4: Sauvegarde du résultat ---
+    setMessage('4/5 - Sauvegarde du nouvel emploi du temps...');
+    
+    // a. Lister les ID des groupes de la section pour nettoyer l'ancien planning
+    const groupeIds = [...new Set(seances.map(s => {
+      const groupe = assertDefined(s.groupes?.[0], `Séance ${s.id} sans groupe associé.`);
+      return groupe.id;
+    }))];
+
+    // b. Récupérer les ID des anciennes séances pour ces groupes
+    const { data: oldSeances, error: oldSeancesError } = await supabase
+        .from('seances')
+        .select('id')
+        .in('groupe_id', groupeIds);
+
+    if (oldSeancesError) {
+        setMessage(`Erreur lors de la récupération des anciennes séances: ${oldSeancesError.message}`);
+        return false;
+    }
+
+    // c. Supprimer les anciennes entrées de l'emploi du temps
+    const oldSeanceIds = oldSeances.map(s => s.id);
+    if (oldSeanceIds.length > 0) {
+        const { error: deleteError } = await supabase
+            .from('emplois_du_temps')
+            .delete()
+            .in('seance_id', oldSeanceIds);
+
+        if (deleteError) {
+            setMessage(`Erreur lors du nettoyage de l'ancien planning: ${deleteError.message}`);
+            return false;
+        }
+    }
+
+    // d. Insérer le nouveau planning
+    const { error: insertError } = await supabase.from('emplois_du_temps').insert(planning);
+    if (insertError) {
+        setMessage(`Erreur lors de la sauvegarde du nouveau planning: ${insertError.message}`);
+        return false;
+    }
+
+    setMessage('5/5 - Génération terminée avec succès !');
+    return true;
 }

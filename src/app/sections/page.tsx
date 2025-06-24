@@ -6,21 +6,21 @@ import Link from 'next/link'
 import { FaLayerGroup, FaPlus, FaTrash, FaPencilAlt, FaArrowLeft, FaFileExcel } from 'react-icons/fa'
 import * as XLSX from 'xlsx'
 
-interface Filiere {
-    id: number
+interface Section {
+    id: string
     nom: string
+    filiere_id: string
+    filieres: { nom: string } | null
 }
 
-interface Section {
-    id: number
+interface Filiere {
+    id: string
     nom: string
-    filiere_id: number
-    filieres: { nom: string }
 }
 
 interface ExcelRow {
     nom: string;
-    filiere_id: number;
+    filiere_nom: string;
 }
 
 export default function SectionsPage() {
@@ -30,40 +30,95 @@ export default function SectionsPage() {
     const [editingSection, setEditingSection] = useState<Section | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
+    const [success, setSuccess] = useState<string | null>(null)
 
-    useEffect(() => {
-        fetchInitialData()
-    }, [])
-
-    const fetchInitialData = async () => {
+    const fetchPageData = async () => {
         setLoading(true)
-        await Promise.all([fetchSections(), fetchFilieres()])
-        setLoading(false)
-    }
-
-    const fetchSections = async () => {
-        const { data, error } = await supabase
+        const { data: sectionsData, error: sectionsError } = await supabase
             .from('sections')
             .select('*, filieres(nom)')
             .order('nom', { ascending: true })
+        
+        const { data: filieresData, error: filieresError } = await supabase
+            .from('filieres')
+            .select('*')
+            .order('nom', { ascending: true })
 
-        if (error) {
-            console.error('Erreur de chargement:', error)
-            setError('Impossible de charger les sections.')
+        if (sectionsError || filieresError) {
+            setError('Impossible de charger les données.')
         } else {
-            setSections(data as Section[])
-            setError(null)
+            setSections(sectionsData as Section[])
+            setFilieres(filieresData as Filiere[])
         }
+        setLoading(false)
     }
 
-    const fetchFilieres = async () => {
-        const { data, error } = await supabase.from('filieres').select('*').order('nom', { ascending: true })
-        if (error) {
-            console.error('Erreur de chargement des filières:', error)
-        } else {
-            setFilieres(data || [])
+    useEffect(() => {
+        fetchPageData()
+    }, [])
+    
+    const handleImportExcel = async (e: ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setLoading(true);
+        setError(null);
+        setSuccess(null);
+
+        // 1. Créer une map des noms de filières vers leurs IDs
+        const { data: filieresData, error: filieresError } = await supabase.from('filieres').select('id, nom');
+        if (filieresError) {
+            setError('Impossible de récupérer les filières pour la validation.');
+            setLoading(false);
+            return;
         }
-    }
+        const filiereNameToIdMap = new Map(filieresData.map(f => [f.nom.toLowerCase(), f.id]));
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                const data = event.target?.result;
+                const workbook = XLSX.read(data, { type: 'binary' });
+                const sheetName = workbook.SheetNames[0];
+                const sheet = workbook.Sheets[sheetName];
+                const jsonData = XLSX.utils.sheet_to_json<ExcelRow>(sheet);
+
+                const sectionsToInsert = jsonData.map(row => {
+                    if (!row.nom || !row.filiere_nom) {
+                        throw new Error(`La ligne pour "${row.nom || 'N/A'}" est incomplète. Les colonnes 'nom' et 'filiere_nom' sont requises.`);
+                    }
+
+                    const filiereId = filiereNameToIdMap.get(row.filiere_nom.trim().toLowerCase());
+                    if (!filiereId) {
+                        throw new Error(`La filière "${row.filiere_nom}" pour la section "${row.nom}" n'a pas été trouvée.`);
+                    }
+
+                    return { 
+                        nom: row.nom.trim(),
+                        filiere_id: filiereId,
+                    };
+                });
+
+                if (sectionsToInsert.length > 0) {
+                    const { error: insertError } = await supabase.from('sections').insert(sectionsToInsert);
+                    if (insertError) {
+                        throw new Error(insertError.message);
+                    }
+                    setSuccess(`${sectionsToInsert.length} section(s) importée(s) avec succès.`);
+                    fetchPageData(); // Rafraîchir la liste
+                } else {
+                    setError("Le fichier Excel ne contient aucune ligne valide à importer.");
+                }
+
+            } catch (err: any) {
+                setError(`Erreur lors de l'importation : ${err.message}`);
+            } finally {
+                setLoading(false);
+                e.target.value = '';
+            }
+        };
+        reader.readAsBinaryString(file);
+    };
 
     const handleAddSection = async (e: FormEvent) => {
         e.preventDefault()
@@ -71,263 +126,170 @@ export default function SectionsPage() {
             setError('Le nom et la filière sont obligatoires.')
             return
         }
+        setError(null)
+        setSuccess(null)
 
         const { data, error } = await supabase
             .from('sections')
-            .insert([{ 
-                nom: newSection.nom.trim(), 
-                filiere_id: parseInt(newSection.filiere_id) 
-            }])
+            .insert([{ nom: newSection.nom.trim(), filiere_id: newSection.filiere_id }])
             .select('*, filieres(nom)')
         
         if (error) {
-            console.error('Erreur ajout:', error)
-            setError('Erreur lors de l\'ajout de la section.')
+            setError(`Erreur lors de l'ajout: ${error.message}`)
         } else if (data) {
             setSections([...sections, ...(data as Section[])])
             setNewSection({ nom: '', filiere_id: '' })
-            setError(null)
+            setSuccess('Section ajoutée avec succès.')
         }
     }
-    
-    const handleDeleteSection = async (id: number) => {
-        if (!confirm('Êtes-vous sûr de vouloir supprimer cette section ?')) return
+
+    const handleDeleteSection = async (id: string) => {
+        if (!confirm('Êtes-vous sûr de vouloir supprimer cette section ? Tous les groupes associés seront aussi supprimés.')) return
 
         const { error } = await supabase.from('sections').delete().eq('id', id)
         if (error) {
-            console.error('Erreur suppression:', error)
-            setError('Impossible de supprimer cette section.')
+            setError(`Impossible de supprimer: ${error.message}`)
+            setSuccess(null)
         } else {
             setSections(sections.filter((s) => s.id !== id))
+            setSuccess('Section supprimée.')
             setError(null)
         }
     }
 
     const handleUpdateSection = async (e: FormEvent) => {
         e.preventDefault()
-        if (!editingSection || !editingSection.nom.trim()) return
+        if (!editingSection || !editingSection.nom.trim() || !editingSection.filiere_id) return
 
         const { data, error } = await supabase
             .from('sections')
-            .update({
-                nom: editingSection.nom.trim(),
-                filiere_id: editingSection.filiere_id
-            })
+            .update({ nom: editingSection.nom.trim(), filiere_id: editingSection.filiere_id })
             .eq('id', editingSection.id)
             .select('*, filieres(nom)')
-        
+
         if (error) {
-            console.error('Erreur mise à jour:', error)
-            setError('Erreur lors de la mise à jour.')
+            setError(`Erreur lors de la mise à jour: ${error.message}`)
+            setSuccess(null)
         } else if (data) {
             setSections(sections.map(s => s.id === editingSection.id ? (data[0] as Section) : s))
             setEditingSection(null)
+            setSuccess('Section mise à jour.')
             setError(null)
         }
     }
 
-    const handleImportExcel = async (e: ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
-        if (!file) return
+    return (
+        <div className="container mx-auto px-4 sm:px-8 py-8">
+            <div className="flex justify-between items-center mb-8">
+                <div className="flex items-center">
+                    <FaLayerGroup className="text-3xl text-indigo-500 mr-4" />
+                    <h1 className="text-4xl font-bold text-gray-800">Gestion des Sections</h1>
+                </div>
+                 <div className="flex items-center gap-4">
+                    <input
+                        type="file"
+                        accept=".xlsx, .xls"
+                        onChange={handleImportExcel}
+                        className="hidden"
+                        id="excel-upload"
+                    />
+                    <label
+                        htmlFor="excel-upload"
+                        className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer"
+                    >
+                        <FaFileExcel />
+                        Importer
+                    </label>
+                    <Link href="/" className="flex items-center text-indigo-600 hover:text-indigo-800">
+                        <FaArrowLeft className="mr-2"/>
+                        Retour à l'accueil
+                    </Link>
+                </div>
+            </div>
 
-        try {
-            const reader = new FileReader()
-            reader.onload = async (e) => {
-                const data = e.target?.result
-                const workbook = XLSX.read(data, { type: 'binary' })
-                const sheetName = workbook.SheetNames[0]
-                const sheet = workbook.Sheets[sheetName]
-                const jsonData = XLSX.utils.sheet_to_json<{ nom: string, filiere_nom: string }>(sheet)
+            {error && <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6" role="alert"><p>{error}</p></div>}
+            {success && <div className="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-6" role="alert"><p>{success}</p></div>}
 
-                // Récupère toutes les filières existantes
-                const { data: filieres, error: filieresError } = await supabase.from('filieres').select('*')
-                if (filieresError) {
-                    setError('Erreur lors de la récupération des filières')
-                    return
-                }
-
-                for (const row of jsonData) {
-                    if (!row.nom || !row.filiere_nom) continue
-
-                    // Trouve l'ID de la filière à partir du nom
-                    const filiere = filieres.find(f => f.nom.trim().toLowerCase() === row.filiere_nom.trim().toLowerCase())
-                    if (!filiere) {
-                        console.error(`Filière non trouvée pour la section ${row.nom}: ${row.filiere_nom}`)
-                        setError(`Filière non trouvée: ${row.filiere_nom}`)
-                        continue
-                    }
-
-                    const { error } = await supabase
-                        .from('sections')
-                        .insert([{ nom: row.nom, filiere_id: filiere.id }])
-                    if (error) {
-                        console.error('Erreur lors de l\'importation:', error, row)
-                        setError('Erreur lors de l\'importation des données')
-                    }
-                }
-                fetchSections()
-            }
-            reader.readAsBinaryString(file)
-        } catch (error) {
-            console.error('Erreur lors de la lecture du fichier:', error)
-            setError('Erreur lors de la lecture du fichier Excel')
-        }
-    }
-
-    const renderEditForm = () => (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-            <div className="bg-white p-8 rounded-lg shadow-2xl w-full max-w-md">
-                <h2 className="text-2xl font-bold text-gray-800 mb-6">Modifier la Section</h2>
-                <form onSubmit={handleUpdateSection} className="space-y-4">
+            <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+                <h2 className="text-2xl font-semibold text-gray-700 mb-4">Ajouter une section</h2>
+                <form onSubmit={handleAddSection} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                     <input
                         type="text"
-                        value={editingSection?.nom || ''}
-                        onChange={(e) => setEditingSection(editingSection ? { ...editingSection, nom: e.target.value } : null)}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        value={newSection.nom}
+                        onChange={(e) => setNewSection({ ...newSection, nom: e.target.value })}
                         placeholder="Nom de la section"
+                        className="w-full p-2 border rounded-lg md:col-span-1"
                         required
                     />
                     <select
-                        value={editingSection?.filiere_id || ''}
-                        onChange={(e) => setEditingSection(editingSection ? { ...editingSection, filiere_id: parseInt(e.target.value) } : null)}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        value={newSection.filiere_id}
+                        onChange={(e) => setNewSection({ ...newSection, filiere_id: e.target.value })}
+                        className="w-full p-2 border rounded-lg md:col-span-1"
                         required
                     >
-                        <option value="">Sélectionner une filière</option>
-                        {filieres.map(filiere => (
-                            <option key={filiere.id} value={filiere.id}>{filiere.nom}</option>
-                        ))}
+                        <option value="">-- Choisir une filière --</option>
+                        {filieres.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
                     </select>
-                    <div className="flex justify-end gap-4 mt-6">
-                        <button type="button" onClick={() => setEditingSection(null)} className="px-6 py-2 rounded-lg text-gray-700 bg-gray-200 hover:bg-gray-300">
-                            Annuler
-                        </button>
-                        <button type="submit" className="px-6 py-2 rounded-lg text-white bg-indigo-600 hover:bg-indigo-700">
-                            Mettre à jour
-                        </button>
-                    </div>
+                    <button type="submit" className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center justify-center md:col-span-1">
+                        <FaPlus className="mr-2"/> Ajouter
+                    </button>
                 </form>
             </div>
-        </div>
-    )
 
-    return (
-        <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
-            <div className="max-w-4xl mx-auto">
-                <header className="mb-10">
-                    <Link href="/" className="text-indigo-600 hover:text-indigo-800 flex items-center mb-4">
-                        <FaArrowLeft className="mr-2" />
-                        Retour au tableau de bord
-                    </Link>
-                    <div className="flex items-center justify-between">
-                        <h1 className="text-4xl font-bold text-gray-800 flex items-center">
-                            <FaLayerGroup className="mr-3 text-indigo-500" />
-                            Gestion des Sections
-                        </h1>
-                        <div className="relative">
-                            <input
-                                type="file"
-                                accept=".xlsx,.xls"
-                                onChange={handleImportExcel}
-                                className="hidden"
-                                id="excel-upload"
-                            />
-                            <label
-                                htmlFor="excel-upload"
-                                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer"
-                            >
-                                <FaFileExcel />
-                                Importer Excel
-                            </label>
-                        </div>
-                    </div>
-                </header>
-
-                <div className="bg-white p-8 rounded-xl shadow-md mb-8">
-                    <h2 className="text-2xl font-semibold text-gray-700 mb-6">Ajouter une nouvelle section</h2>
-                    <form onSubmit={handleAddSection} className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <input
-                            type="text"
-                            value={newSection.nom}
-                            onChange={(e) => setNewSection({...newSection, nom: e.target.value})}
-                            placeholder="Nom de la section"
-                            className="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                            required
-                        />
-                        <select
-                            value={newSection.filiere_id}
-                            onChange={(e) => setNewSection({...newSection, filiere_id: e.target.value})}
-                            className="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                            required
-                        >
-                            <option value="">Sélectionner une filière</option>
-                            {filieres.map(filiere => (
-                                <option key={filiere.id} value={filiere.id}>{filiere.nom}</option>
-                            ))}
-                        </select>
-                        <button type="submit" className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition-colors">
-                            <FaPlus />
-                            Ajouter
-                        </button>
-                    </form>
-                    {error && <p className="text-red-500 mt-4 text-sm">{error}</p>}
-                </div>
-
-                <div className="bg-white rounded-xl shadow-md overflow-hidden">
-                    <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-100">
+            <div className="bg-white shadow-md rounded-lg overflow-hidden">
+                 {loading ? <p className="p-4 text-center">Chargement...</p> : (
+                    <table className="min-w-full leading-normal">
+                        <thead>
                             <tr>
-                                <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
-                                    ID
-                                </th>
-                                <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
-                                    Nom
-                                </th>
-                                <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
-                                    Filière
-                                </th>
-                                <th scope="col" className="px-6 py-4 text-right text-xs font-bold text-gray-600 uppercase tracking-wider">
-                                    Actions
-                                </th>
+                                <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Nom de la Section</th>
+                                <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Filière</th>
+                                <th className="px-5 py-3 border-b-2 bg-gray-100 text-right text-xs font-semibold uppercase">Actions</th>
                             </tr>
                         </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                            {loading ? (
-                                <tr>
-                                    <td colSpan={4} className="text-center py-10 text-gray-500">Chargement...</td>
+                        <tbody>
+                            {sections.map((section) => (
+                                <tr key={section.id} className="hover:bg-gray-50">
+                                    {editingSection?.id === section.id ? (
+                                        <td colSpan={3} className="px-5 py-4 border-b">
+                                             <form onSubmit={handleUpdateSection} className="grid grid-cols-4 gap-3 items-center">
+                                                <input
+                                                    type="text"
+                                                    value={editingSection.nom}
+                                                    onChange={(e) => setEditingSection({ ...editingSection, nom: e.target.value })}
+                                                    className="w-full p-1 border rounded"
+                                                    autoFocus
+                                                />
+                                                 <select
+                                                    value={editingSection.filiere_id}
+                                                    onChange={(e) => setEditingSection({ ...editingSection, filiere_id: e.target.value })}
+                                                    className="w-full p-1 border rounded"
+                                                >
+                                                    {filieres.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
+                                                </select>
+                                                <div className="flex gap-2 justify-end">
+                                                    <button type="submit" className="px-3 py-1 rounded bg-green-500 text-white">Sauver</button>
+                                                    <button type="button" onClick={() => setEditingSection(null)} className="px-3 py-1 rounded bg-gray-200">Annuler</button>
+                                                </div>
+                                            </form>
+                                        </td>
+                                    ) : (
+                                        <>
+                                            <td className="px-5 py-4 border-b text-sm"><p className="font-semibold">{section.nom}</p></td>
+                                            <td className="px-5 py-4 border-b text-sm">{section.filieres?.nom || 'N/A'}</td>
+                                            <td className="px-5 py-4 border-b text-sm text-right">
+                                                <div className="inline-flex space-x-3">
+                                                    <button onClick={() => setEditingSection(section)} className="text-yellow-600 hover:text-yellow-800"><FaPencilAlt /></button>
+                                                    <button onClick={() => handleDeleteSection(section.id)} className="text-red-600 hover:text-red-800"><FaTrash /></button>
+                                                </div>
+                                            </td>
+                                        </>
+                                    )}
                                 </tr>
-                            ) : sections.length > 0 ? (
-                                sections.map((section) => (
-                                    <tr key={section.id} className="hover:bg-gray-50 transition-colors">
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            <div className="text-sm font-medium text-gray-900">{section.id}</div>
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            <div className="text-sm font-medium text-gray-900">{section.nom}</div>
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            <div className="text-sm text-gray-900">{section.filieres?.nom || '-'}</div>
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                            <button onClick={() => setEditingSection(section)} className="text-indigo-600 hover:text-indigo-900 mr-4">
-                                                <FaPencilAlt />
-                                            </button>
-                                            <button onClick={() => handleDeleteSection(section.id)} className="text-red-600 hover:text-red-900">
-                                                <FaTrash />
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))
-                            ) : (
-                                <tr>
-                                    <td colSpan={4} className="text-center py-10 text-gray-500">Aucune section trouvée.</td>
-                                </tr>
-                            )}
+                            ))}
                         </tbody>
                     </table>
-                </div>
+                )}
             </div>
-            {editingSection && renderEditForm()}
         </div>
     )
 }
