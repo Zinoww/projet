@@ -68,16 +68,33 @@ export default function EmploiDuTempsPage() {
         const { data: groupes, error: groupesError } = await supabase
             .from('groupes').select('id').eq('section_id', sectionId);
 
-        if (groupesError || !groupes || groupes.length === 0) {
+        if (groupesError) {
+            console.error("Erreur lors de la récupération des groupes:", groupesError);
             setLoading(false);
             setEvents([]);
             return;
         }
-        const groupeIds = groupes.map(g => g.id);
+
+        const groupeIds = groupes?.map(g => g.id) || [];
+        console.log("Groupes récupérés:", groupeIds);
 
         // B. Trouver toutes les séances de ces groupes
-        const { data: seances, error: seancesError } = await supabase
-            .from('seances').select('id').in('groupe_id', groupeIds);
+        let seances = [];
+        let seancesError = null;
+        if (groupeIds.length > 0) {
+            const result = await supabase
+                .from('seances')
+                .select('id')
+                .in('groupe_id', groupeIds);
+            seances = result.data || [];
+            seancesError = result.error;
+        } else {
+            // Aucun groupe, donc pas de séances à récupérer
+            setLoading(false);
+            setEvents([]);
+            return;
+        }
+        console.log("Séances récupérées:", seances);
         
         if (seancesError || !seances || seances.length === 0) {
             setLoading(false);
@@ -85,6 +102,13 @@ export default function EmploiDuTempsPage() {
             return;
         }
         const seanceIds = seances.map(s => s.id);
+        console.log('seanceIds:', seanceIds);
+        if (!seanceIds || seanceIds.length === 0) {
+            setLoading(false);
+            setEvents([]);
+            setMessage('Aucune séance trouvée pour cette section.');
+            return;
+        }
 
         // C. Récupérer l'emploi du temps pour ces séances
         const { data: timetableData, error: timetableError } = await supabase
@@ -94,15 +118,17 @@ export default function EmploiDuTempsPage() {
                 salles ( nom ),
                 seances (
                     cours ( nom ),
-                    types_cours ( nom ),
+                    types_seances ( nom ),
                     enseignants ( nom )
                 )
             `)
             .in('seance_id', seanceIds);
         
+        console.log('TimetableData:', timetableData);
+        console.log('TimetableError:', timetableError);
         if (timetableError) {
             setMessage('Erreur lors de la récupération de l\'emploi du temps.')
-            console.error(timetableError);
+            console.error("Erreur lors de la récupération de l'emploi du temps:", timetableError);
             setLoading(false);
             return;
         }
@@ -113,10 +139,10 @@ export default function EmploiDuTempsPage() {
             id: item.id,
             date: weekStart.clone().isoWeekday(joursSemaine[item.jour]).format('YYYY-MM-DD'),
             heure_debut: item.heure_debut,
-            type: item.seances.types_cours.nom,
-            cours: { nom: item.seances.cours.nom },
-            enseignants: { nom: item.seances.enseignants?.nom || 'N/A' },
-            salles: { nom: item.salles.nom }
+            type: item.seances?.types_seances?.nom || '',
+            cours: { nom: item.seances?.cours?.nom || '' },
+            enseignants: { nom: item.seances?.enseignants?.nom || 'N/A' },
+            salles: { nom: item.salles?.nom || '' }
         }));
 
         setEvents(formattedEvents);
@@ -142,6 +168,16 @@ export default function EmploiDuTempsPage() {
             await fetchTimetable(selectedSection)
         }
     }
+
+    // Ajout pour PDF pro
+    const selectedSectionObj = sections.find(s => s.id === selectedSection);
+    const sectionName = selectedSectionObj ? selectedSectionObj.nom : '';
+    // À adapter selon ta logique métier
+    const niveau = sectionName.split(' ')[0] || '';
+    // Calcul période semaine (lundi-dimanche)
+    const weekStart = moment().startOf('isoWeek');
+    const dateDebut = weekStart.format('DD/MM/YYYY');
+    const dateFin = weekStart.clone().add(6, 'days').format('DD/MM/YYYY');
 
     return (
         <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
@@ -197,7 +233,14 @@ export default function EmploiDuTempsPage() {
                 {loading ? (
                      <div className="text-center py-10 text-gray-500">Chargement de l'emploi du temps...</div>
                 ) : events.length > 0 ? (
-                    <TimetableGrid events={events} currentDate={new Date()} />
+                    <TimetableGrid
+                        events={events}
+                        currentDate={new Date()}
+                        sectionName={sectionName}
+                        niveau={niveau}
+                        dateDebut={dateDebut}
+                        dateFin={dateFin}
+                    />
                 ) : (
                     <div className="text-center py-10 bg-white rounded-xl shadow-md text-gray-500">
                         {selectedSection ? "Aucun emploi du temps trouvé pour cette section." : "Veuillez sélectionner une section."}

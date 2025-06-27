@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx'
 
 // Interfaces pour les données externes
 interface Cour { id: string; nom: string; }
-interface TypeCours { id: string; nom: string; }
+interface TypeSeance { id: string; nom: string; }
 interface Groupe { id: string; nom: string; niveau: string | null; }
 interface Enseignant { id: string; nom: string; }
 
@@ -21,7 +21,7 @@ interface Seance {
   groupe_id: string
   enseignant_id: string | null
   cours: { nom: string } | null
-  types_cours: { nom: string } | null
+  types_seances: { nom: string } | null
   groupes: { nom: string } | null
   enseignants: { nom: string } | null
 }
@@ -47,7 +47,7 @@ export default function SeancesPage() {
     // États pour les données de formulaire
     const [seances, setSeances] = useState<Seance[]>([])
     const [cours, setCours] = useState<Cour[]>([])
-    const [types, setTypes] = useState<TypeCours[]>([])
+    const [types, setTypes] = useState<TypeSeance[]>([])
     const [groupes, setGroupes] = useState<Groupe[]>([])
     const [enseignants, setEnseignants] = useState<Enseignant[]>([])
     const [selectedNiveau, setSelectedNiveau] = useState<string>('')
@@ -73,7 +73,7 @@ export default function SeancesPage() {
         await Promise.all([
             fetchSeances(),
             fetchCours(),
-            fetchTypesCours(),
+            fetchTypesSeances(),
             fetchGroupes(),
             fetchEnseignants(),
         ])
@@ -88,7 +88,7 @@ export default function SeancesPage() {
                 id,
                 duree_minutes,
                 cours:cours_id (id, nom),
-                types_cours:type_id (id, nom),
+                types_seances:type_id (id, nom),
                 groupes:groupe_id (id, nom),
                 enseignants:enseignant_id (id, nom)
             `)
@@ -99,8 +99,9 @@ export default function SeancesPage() {
         const { data, error } = await supabase.from('cours').select('id, nom').order('nom')
         if (!error) setCours(data)
     }
-    const fetchTypesCours = async () => {
-        const { data, error } = await supabase.from('types_cours').select('id, nom').order('nom')
+    const fetchTypesSeances = async () => {
+        const { data, error } = await supabase.from('types_seances').select('id, nom').order('nom')
+        console.log('types_seances:', data, error);
         if (!error) setTypes(data)
     }
     const fetchGroupes = async () => {
@@ -187,7 +188,7 @@ export default function SeancesPage() {
         const { data, error } = await supabase
             .from('seances')
             .insert([{ ...newSeance, enseignant_id: newSeance.enseignant_id || null, duree_minutes: Number(newSeance.duree_minutes) }])
-            .select('*, cours(nom), types_cours(nom), groupes(nom), enseignants(nom)')
+            .select('*, cours(nom), types_seances(nom), groupes(nom), enseignants(nom)')
         if (error) {
             setError(`Erreur lors de l'ajout: ${error.message}`)
         } else if (data) {
@@ -237,7 +238,7 @@ export default function SeancesPage() {
                 duree_minutes: parseInt(editingSeanceForm.duree_minutes),
             })
             .eq('id', editingSeance.id)
-            .select('*, cours(nom), types_cours(nom), groupes(nom), enseignants(nom)')
+            .select('*, cours(nom), types_seances(nom), groupes(nom), enseignants(nom)')
 
         if (error) {
             setError(`Erreur: ${error.message}`)
@@ -376,7 +377,7 @@ export default function SeancesPage() {
                             {seances.map(s => (
                                 <tr key={s.id} className="hover:bg-gray-50">
                                     <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.cours?.nom ?? <span className="text-gray-400">N/A</span>}</td>
-                                    <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.types_cours?.nom ?? <span className="text-gray-400">N/A</span>}</td>
+                                    <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.types_seances?.nom ?? <span className="text-gray-400">N/A</span>}</td>
                                     <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.groupes?.nom ?? <span className="text-gray-400">N/A</span>}</td>
                                     <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.enseignants?.nom || <span className="text-gray-400">N/A</span>}</td>
                                     <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.duree_minutes} min</td>
