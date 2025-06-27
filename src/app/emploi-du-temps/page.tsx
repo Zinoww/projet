@@ -4,8 +4,9 @@ import { supabase } from '@/src/lib/supabaseClient'
 import { genererEmploiDuTemps } from '@/src/lib/generation'
 import TimetableGrid from '@/src/components/TimetableGrid'
 import Link from 'next/link'
-import { FaArrowLeft, FaCalendarAlt, FaCogs } from 'react-icons/fa'
+import { FaArrowLeft, FaCalendarAlt, FaCogs, FaChevronLeft, FaChevronRight } from 'react-icons/fa'
 import moment from 'moment'
+moment.updateLocale('fr', { week: { dow: 0 } }); // 0 = dimanche
 
 // Types pour les données
 interface Section {
@@ -17,6 +18,7 @@ type EventData = {
     id: string;
     date: string;
     heure_debut: string;
+    heure_fin: string;
     type: string;
     cours: { nom: string };
     enseignants: { nom: string };
@@ -24,7 +26,7 @@ type EventData = {
 };
 
 const joursSemaine: { [key: string]: number } = {
-    'Lundi': 1, 'Mardi': 2, 'Mercredi': 3, 'Jeudi': 4, 'Vendredi': 5, 'Samedi': 6, 'Dimanche': 7
+    'Dimanche': 1,'Lundi': 2, 'Mardi': 3, 'Mercredi': 4, 'Jeudi': 5,
 };
 
 export default function EmploiDuTempsPage() {
@@ -34,6 +36,7 @@ export default function EmploiDuTempsPage() {
     const [message, setMessage] = useState<string>('')
     const [loading, setLoading] = useState<boolean>(false)
     const [isGenerating, setIsGenerating] = useState<boolean>(false)
+    const [currentWeek, setCurrentWeek] = useState(moment().startOf('week'))
     
     // 1. Charger les sections au démarrage
     useEffect(() => {
@@ -114,7 +117,7 @@ export default function EmploiDuTempsPage() {
         const { data: timetableData, error: timetableError } = await supabase
             .from('emplois_du_temps')
             .select(`
-                id, jour, heure_debut,
+                id, jour, heure_debut, heure_fin,
                 salles ( nom ),
                 seances (
                     cours ( nom ),
@@ -134,16 +137,18 @@ export default function EmploiDuTempsPage() {
         }
 
         // D. Transformer les données pour le composant TimetableGrid
-        const weekStart = moment().startOf('isoWeek');
+        const weekStart = currentWeek;
         const formattedEvents = timetableData.map((item: any) => ({
             id: item.id,
             date: weekStart.clone().isoWeekday(joursSemaine[item.jour]).format('YYYY-MM-DD'),
-            heure_debut: item.heure_debut,
+            heure_debut: item.heure_debut ? item.heure_debut.substring(0,5) : '',
+            heure_fin: item.heure_fin ? item.heure_fin.substring(0,5) : '',
             type: item.seances?.types_seances?.nom || '',
             cours: { nom: item.seances?.cours?.nom || '' },
             enseignants: { nom: item.seances?.enseignants?.nom || 'N/A' },
             salles: { nom: item.salles?.nom || '' }
         }));
+        console.log('formattedEvents:', formattedEvents);
 
         setEvents(formattedEvents);
         setLoading(false);
@@ -174,28 +179,54 @@ export default function EmploiDuTempsPage() {
     const sectionName = selectedSectionObj ? selectedSectionObj.nom : '';
     // À adapter selon ta logique métier
     const niveau = sectionName.split(' ')[0] || '';
-    // Calcul période semaine (lundi-dimanche)
-    const weekStart = moment().startOf('isoWeek');
+    // Calcul période semaine (dimanche-jeudi)
+    const weekStart = currentWeek;
     const dateDebut = weekStart.format('DD/MM/YYYY');
-    const dateFin = weekStart.clone().add(6, 'days').format('DD/MM/YYYY');
+    const dateFin = weekStart.clone().add(4, 'days').format('DD/MM/YYYY'); // Dimanche à Jeudi
+    // Log pour vérifier la date du dimanche de la semaine affichée
+    console.log('Date du dimanche (colonne 0) :', weekStart.format('YYYY-MM-DD'));
 
     return (
-        <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-indigo-100 p-4 sm:p-6 lg:p-8">
             <div className="max-w-7xl mx-auto">
                 <header className="mb-8">
-                    <div className="flex justify-between items-center mb-4">
-                        <h1 className="text-4xl font-bold text-gray-800 flex items-center">
-                            <FaCalendarAlt className="mr-3 text-indigo-500" />
-                            Emploi du Temps
-                        </h1>
-                        <Link href="/" className="text-indigo-600 hover:text-indigo-800 flex items-center">
-                            <FaArrowLeft className="mr-2" />
-                            Retour à l'accueil
+                    <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
+                        <div className="flex items-center gap-4">
+                            <img src="/logo.png" alt="Logo" className="h-14 w-14 rounded shadow bg-white object-contain border" onError={e => e.currentTarget.style.display='none'} />
+                            <div>
+                                <h1 className="text-4xl font-extrabold text-indigo-800 tracking-tight mb-1">Emploi du Temps</h1>
+                                <div className="text-gray-600 text-sm font-medium">
+                                    Section : <span className="font-semibold">{sectionName || '...'}</span> &nbsp;|&nbsp;
+                                    Niveau : <span className="font-semibold">{niveau || '...'}</span> &nbsp;|&nbsp;
+                                    Semaine : <span className="font-semibold">{dateDebut} au {dateFin}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <Link href="/" className="text-indigo-600 hover:text-indigo-800 flex items-center text-base font-semibold">
+                            <FaArrowLeft className="mr-2" /> Retour à l'accueil
                         </Link>
+                    </div>
+                    {/* Semaine navigation */}
+                    <div className="flex items-center justify-center gap-4 mt-2">
+                        <button
+                          className="p-2 rounded-full bg-indigo-100 hover:bg-indigo-200 text-indigo-700"
+                          onClick={() => setCurrentWeek(prev => prev.clone().subtract(1, 'week'))}
+                          title="Semaine précédente"
+                        >
+                          <FaChevronLeft />
+                        </button>
+                        <span className="text-indigo-700 font-semibold">Semaine du {dateDebut} au {dateFin}</span>
+                        <button
+                          className="p-2 rounded-full bg-indigo-100 hover:bg-indigo-200 text-indigo-700"
+                          onClick={() => setCurrentWeek(prev => prev.clone().add(1, 'week'))}
+                          title="Semaine suivante"
+                        >
+                          <FaChevronRight />
+                        </button>
                     </div>
                 </header>
 
-                <div className="bg-white p-6 rounded-xl shadow-md mb-8">
+                <div className="bg-white p-6 rounded-2xl shadow-xl mb-8 border border-indigo-100">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
                         <div className="md:col-span-2">
                             <label htmlFor="section-select" className="block text-sm font-medium text-gray-700 mb-1">
@@ -233,16 +264,18 @@ export default function EmploiDuTempsPage() {
                 {loading ? (
                      <div className="text-center py-10 text-gray-500">Chargement de l'emploi du temps...</div>
                 ) : events.length > 0 ? (
-                    <TimetableGrid
-                        events={events}
-                        currentDate={new Date()}
-                        sectionName={sectionName}
-                        niveau={niveau}
-                        dateDebut={dateDebut}
-                        dateFin={dateFin}
-                    />
+                    <div className="overflow-x-auto rounded-2xl shadow-lg border border-indigo-100 bg-white">
+                        <TimetableGrid
+                            events={events}
+                            currentDate={weekStart.toDate()}
+                            sectionName={sectionName}
+                            niveau={niveau}
+                            dateDebut={dateDebut}
+                            dateFin={dateFin}
+                        />
+                    </div>
                 ) : (
-                    <div className="text-center py-10 bg-white rounded-xl shadow-md text-gray-500">
+                    <div className="text-center py-10 bg-white rounded-2xl shadow-md border border-indigo-100 text-gray-500">
                         {selectedSection ? "Aucun emploi du temps trouvé pour cette section." : "Veuillez sélectionner une section."}
                     </div>
                 )}
