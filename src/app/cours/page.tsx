@@ -16,7 +16,6 @@ interface ExcelRow {
     nom: string;
 }
 
-const NIVEAUX = ['L1', 'L2', 'L3', 'M1', 'M2'] // Peut être conservé si utile
 
 export default function CoursPage() {
     const [cours, setCours] = useState<Cours[]>([])
@@ -86,8 +85,8 @@ export default function CoursPage() {
                     setError("Le fichier Excel ne contient aucune ligne valide à importer.");
                 }
 
-            } catch (err: any) {
-                setError(`Erreur lors de l'importation : ${err.message}`);
+            } catch (err) {
+                setError(`Erreur lors de l'importation : ${(err as Error)?.message || 'Inconnue'}`);
             } finally {
                 setLoading(false);
                 e.target.value = '';
@@ -211,7 +210,7 @@ export default function CoursPage() {
                     </label>
                     <Link href="/" className="flex items-center text-indigo-600 hover:text-indigo-800">
                         <FaArrowLeft className="mr-2"/>
-                        Retour à l'accueil
+                        Retour à la page Accueil
                     </Link>
                 </div>
             </div>

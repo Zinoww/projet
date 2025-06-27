@@ -1,10 +1,10 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/src/lib/supabaseClient'
 import { genererEmploiDuTemps } from '@/src/lib/generation'
 import TimetableGrid from '@/src/components/TimetableGrid'
 import Link from 'next/link'
-import { FaArrowLeft, FaCalendarAlt, FaCogs, FaChevronLeft, FaChevronRight } from 'react-icons/fa'
+import { FaArrowLeft, FaCogs, FaChevronLeft, FaChevronRight } from 'react-icons/fa'
 import moment from 'moment'
 moment.updateLocale('fr', { week: { dow: 0 } }); // 0 = dimanche
 
@@ -37,43 +37,35 @@ export default function EmploiDuTempsPage() {
     const [loading, setLoading] = useState<boolean>(false)
     const [isGenerating, setIsGenerating] = useState<boolean>(false)
     const [currentWeek, setCurrentWeek] = useState(moment().startOf('week'))
-    
-    // 1. Charger les sections au démarrage
-    useEffect(() => {
-        const fetchSections = async () => {
-            const { data, error } = await supabase.from('sections').select('id, nom').order('nom')
-            if (error) {
-                setMessage('Erreur lors du chargement des sections.')
-                console.error(error)
-            } else {
-                setSections(data || [])
+    const [currentNiveau, setCurrentNiveau] = useState<string>('')
+
+    // Fonction utilitaire pour déterminer le niveau principal
+    const getMainNiveau = (groupes): string => {
+        if (!groupes || groupes.length === 0) return 'Non spécifié';
+        
+        // Comptez les occurrences de chaque niveau
+        const niveauCounts: Record<string, number> = {};
+        groupes.forEach(g => {
+            if (g.niveau) {
+                niveauCounts[g.niveau] = (niveauCounts[g.niveau] || 0) + 1;
             }
-        }
-        fetchSections()
-    }, [])
-    // Ajoutez ce useEffect supplémentaire
+        });
+        
+        // Retourne le niveau le plus fréquent
+        const mostFrequent = Object.entries(niveauCounts).sort((a, b) => b[1] - a[1])[0];
+        return mostFrequent ? mostFrequent[0] : groupes[0].niveau || 'Non spécifié';
+    };
 
-    // 2. Charger l'emploi du temps quand une section est sélectionnée
-    useEffect(() => {
-        if (selectedSection) {
-            fetchTimetable(selectedSection)
-        } else {
-            setEvents([])
-            setMessage('Veuillez sélectionner une section pour voir son emploi du temps.')
-        }
-    }, [selectedSection])
-
-    // 3. Fonction pour récupérer et formater l'emploi du temps
-    const fetchTimetable = async (sectionId: string) => {
+    // 3. Fonction pour récupérer et formater l'emploi du temps (avec useCallback)
+    const fetchTimetable = useCallback(async (sectionId: string) => {
         setLoading(true)
         setMessage('')
         
         // A. Trouver tous les groupes de la section
-     // Dans fetchTimetable(), modifiez la requête groupes :
-const { data: groupes, error: groupesError } = await supabase
-    .from('groupes')
-    .select('id, niveau') // Ajoutez niveau ici
-    .eq('section_id', sectionId);
+        const { data: groupes, error: groupesError } = await supabase
+            .from('groupes')
+            .select('id, niveau')
+            .eq('section_id', sectionId);
 
         if (groupesError) {
             console.error("Erreur lors de la récupération des groupes:", groupesError);
@@ -82,11 +74,11 @@ const { data: groupes, error: groupesError } = await supabase
             return;
         }
      
-if (groupes && groupes.length > 0) {
-    setCurrentNiveau(getMainNiveau(groupes));
-} else {
-    setCurrentNiveau('Non spécifié');
-}
+        if (groupes && groupes.length > 0) {
+            setCurrentNiveau(getMainNiveau(groupes));
+        } else {
+            setCurrentNiveau('Non spécifié');
+        }
         const groupeIds = groupes?.map(g => g.id) || [];
         console.log("Groupes récupérés:", groupeIds);
 
@@ -161,7 +153,31 @@ if (groupes && groupes.length > 0) {
 
         setEvents(formattedEvents);
         setLoading(false);
-    }
+    }, [currentWeek]);
+    
+    // 1. Charger les sections au démarrage
+    useEffect(() => {
+        const fetchSections = async () => {
+            const { data, error } = await supabase.from('sections').select('id, nom').order('nom')
+            if (error) {
+                setMessage('Erreur lors du chargement des sections.')
+                console.error(error)
+            } else {
+                setSections(data || [])
+            }
+        }
+        fetchSections()
+    }, [])
+
+    // 2. Charger l'emploi du temps quand une section est sélectionnée
+    useEffect(() => {
+        if (selectedSection) {
+            fetchTimetable(selectedSection)
+        } else {
+            setEvents([])
+            setMessage('Veuillez sélectionner une section pour voir son emploi du temps.')
+        }
+    }, [selectedSection, fetchTimetable])
 
     // 4. Fonction pour lancer la génération
     const handleGenerate = async () => {
@@ -197,26 +213,6 @@ if (groupes && groupes.length > 0) {
     const dateFin = weekStart.clone().add(4, 'days').format('DD/MM/YYYY'); // Dimanche à Jeudi
     // Log pour vérifier la date du dimanche de la semaine affichée
     console.log('Date du dimanche (colonne 0) :', weekStart.format('YYYY-MM-DD'));
-   const getMainNiveau = (groupes: any[]): string => {
-    if (!groupes || groupes.length === 0) return 'Non spécifié';
-    
-    // Comptez les occurrences de chaque niveau
-    const niveauCounts: Record<string, number> = {};
-    groupes.forEach(g => {
-        if (g.niveau) {
-            niveauCounts[g.niveau] = (niveauCounts[g.niveau] || 0) + 1;
-        }
-    });
-    
-    // Retourne le niveau le plus fréquent
-    const mostFrequent = Object.entries(niveauCounts).sort((a, b) => b[1] - a[1])[0];
-    return mostFrequent ? mostFrequent[0] : groupes[0].niveau || 'Non spécifié';
-};
-
-// Ajoutez un state pour stocker le niveau
-const [currentNiveau, setCurrentNiveau] = useState<string>('');
-
-// Dans fetchTimetable(), après avoir récupéré les groupes :
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-indigo-100 p-4 sm:p-6 lg:p-8">
