@@ -47,6 +47,7 @@ const typeColorMap: { [key: string]: string } = {
     'Cours': 'bg-yellow-100 border-l-4 border-yellow-500',
 };
 
+
 // Ajout utilitaire classNames si manquant
 function classNames(...classes: string[]) {
   return classes.filter(Boolean).join(' ');
@@ -71,6 +72,11 @@ export default function TimetableGrid({ events, currentDate, sectionName, niveau
     const [localEvents, setLocalEvents] = useState(events.length > 0 ? events : [testEvent]);
     const tableRef = React.useRef<HTMLDivElement>(null);
     
+useEffect(() => {
+  setLocalEvents(events); // ou la source initiale de tes cours
+}, [events]);
+    console.log('TimetableGrid localEvents:', localEvents);
+
     const grid: (EventData[])[][] = Array(DAYS.length).fill(null).map(() => Array(TIME_SLOTS.length).fill(null).map(() => []));
     const weekStart = moment(currentDate).startOf('week');
 
@@ -91,21 +97,9 @@ export default function TimetableGrid({ events, currentDate, sectionName, niveau
         }
     });
 
-    // Log détaillé pour chaque event
-    localEvents.forEach(ev => {
-      console.log('Event for grid:', {
-        date: ev.date,
-        heure_debut: ev.heure_debut,
-        heure_fin: ev.heure_fin,
-        type: ev.type,
-        cours: ev.cours,
-        enseignants: ev.enseignants,
-        salles: ev.salles
-      });
-    });
+  
 
     const handleDragEnd = (result: DropResult) => {
-        console.log('Drag result:', result);
         if (!result.destination) return;
         const eventId = result.draggableId;
         const [newDayIndex, newGridIndex] = result.destination.droppableId.split('-').map(Number);
@@ -128,102 +122,324 @@ export default function TimetableGrid({ events, currentDate, sectionName, niveau
                     heure_debut: newHeure,
                 }
             ];
-            console.log('Events after move:', updated);
             return updated;
         });
     };
 
-    const exportPDF = async () => {
-        console.log('Export PDF called');
-        console.log('events used for PDF:', localEvents);
-        const pdf = new jsPDF({ orientation: 'landscape' });
-        // Ajoute un logo (si disponible)
-        try {
-            // Remplace le chemin par le tien si besoin
-            const logoUrl = '/logo.png';
-            const img = new window.Image();
-            img.src = logoUrl;
-            await new Promise((resolve, reject) => {
-                img.onload = resolve;
-                img.onerror = reject;
-            });
-            pdf.addImage(img, 'PNG', 10, 8, 28, 28); // x, y, width, height
-        } catch (e) {
-            // Si le logo n'est pas trouvé, laisse un espace
-            pdf.setDrawColor(200);
-            pdf.rect(10, 8, 28, 28);
+const exportPDF = async () => {
+    const pdf = new jsPDF({ 
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4'
+    });
+
+    // Configuration de moment.js pour la locale française
+    moment.locale('fr', {
+        week: {
+            dow: 0, // Dimanche comme premier jour
+            doy: 4
         }
-        pdf.setFontSize(18);
-        pdf.text('Emploi du temps', 45, 18);
-        pdf.setFontSize(12);
-        pdf.text(`Section : ${sectionName || '...'}`, 45, 28);
-        pdf.text(`Niveau : ${niveau || '...'}`, 45, 36);
-        pdf.text(`Période : ${dateDebut || '...'} au ${dateFin || '...'}`, 45, 44);
-        pdf.setLineWidth(0.5);
-        pdf.line(10, 48, pdf.internal.pageSize.getWidth() - 10, 48);
+    });
 
-        // Pour debug : exporter tous les events, pas seulement ceux de la semaine affichée
-        const filteredEvents = localEvents; // Pas de filtre sur la semaine
-        console.log('filteredEvents for PDF:', filteredEvents);
+    // Palette de couleurs élégante
+    const styles = {
+        // Dégradé bleu sophistiqué
+        primaryDark: [30, 58, 138], // Indigo-800
+        primaryMedium: [67, 56, 202], // Indigo-700
+        primaryLight: [129, 140, 248], // Indigo-400
+        
+        // Couleurs de fond
+        headerBg: [30, 58, 138],
+        headerText: [255, 255, 255],
+        rowEvenBg: [248, 250, 252], // Slate-50
+        rowOddBg: [255, 255, 255],
+        
+        // Bordures et ombres
+        border: [203, 213, 225], // Slate-300
+        shadowColor: [71, 85, 105], // Slate-600
+        
+        // Pause déjeuner - tons dorés
+        lunchBg: [254, 240, 138], // Yellow-200
+        lunchBorder: [217, 119, 6], // Yellow-600
+        lunchText: [146, 64, 14], // Yellow-800
+        
+        // Événements - tons subtils
+        eventBg: [241, 245, 249], // Slate-100
+        eventBorder: [148, 163, 184], // Slate-400
+        eventText: [51, 65, 85], // Slate-700
+        
+        // Types de cours - couleurs distinctives
+        typeCM: [239, 68, 68], // Red-500
+        typeTD: [168, 85, 247], // Purple-500
+        typeTP: [59, 130, 246], // Blue-500
+        typeCours: [245, 158, 11], // Amber-500
+        
+        // Texte
+        titleText: [15, 23, 42], // Slate-900
+        subtitleText: [71, 85, 105], // Slate-600
+        bodyText: [51, 65, 85] // Slate-700
+    };
 
-        // Prépare la matrice [créneau][jour]
-        const jours = DAYS;
-        const creneaux = TIME_SLOTS.filter(slot => !slot.lunch);
-        const grid = creneaux.map((slot, creneauIdx) =>
-            jours.map((day, dayIdx) => {
-                // Chercher l'event dont la date correspond exactement à la colonne (dimanche à jeudi)
-                const cellDate = weekStart.clone().add(dayIdx, 'days').format('YYYY-MM-DD');
-                const event = filteredEvents.find(ev =>
-                    ev.date === cellDate &&
-                    ev.heure_debut === slot.start
-                );
-                if (event) {
-                    return [
-                        event.cours?.nom || '',
-                        event.enseignants?.nom || '',
-                        event.salles?.nom || '',
-                        `[${event.type}]`
-                    ].filter(Boolean).join("\n");
+    // === EN-TÊTE ÉLÉGANT ===
+    // Fond dégradé pour l'en-tête
+    pdf.setFillColor(styles.primaryDark[0], styles.primaryDark[1], styles.primaryDark[2]);
+    pdf.roundedRect(10, 8, 277, 32, 4, 4, 'F');
+    
+    // Ombre subtile sous l'en-tête
+    pdf.setFillColor(0, 0, 0, 0.1);
+    pdf.roundedRect(11, 9, 277, 32, 4, 4, 'F');
+    
+    // Titre principal avec typographie élégante
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(22);
+    pdf.setTextColor(255, 255, 255);
+    pdf.text('EMPLOI DU TEMPS HEBDOMADAIRE', 148.5, 20, { align: 'center' });
+    
+    // Sous-titre avec style moderne
+    pdf.setFontSize(11);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setTextColor(220, 220, 220);
+    pdf.text('Planning académique', 148.5, 27, { align: 'center' });
+    
+    // Informations détaillées avec icônes stylisées
+    pdf.setFontSize(10);
+    pdf.setTextColor(styles.subtitleText[0], styles.subtitleText[1], styles.subtitleText[2]);
+    
+    // Ligne d'informations avec séparateurs élégants
+    const infoY = 35;
+    pdf.text(`Section: ${sectionName || 'Non spécifiée'}`, 15, infoY);
+    pdf.text('•', 75, infoY);
+    pdf.text(`Niveau: ${niveau || 'Non spécifié'}`, 80, infoY);
+    pdf.text('•', 140, infoY);
+    pdf.text(`Période: ${dateDebut || '...'} au ${dateFin || '...'}`, 145, infoY);
+
+    // === CONFIGURATION DU TABLEAU ÉLÉGANT ===
+    const margin = 12;
+    const tableWidth = 273;
+    const colWidth = tableWidth / (DAYS.length + 1);
+    const rowHeight = 18; // Plus d'espace pour plus d'élégance
+    let yPos = 45;
+
+    // Ombre du tableau pour profondeur
+    pdf.setFillColor(0, 0, 0, 0.08);
+    pdf.roundedRect(margin + 1, yPos + 1, tableWidth, rowHeight + (TIME_SLOTS.length * rowHeight), 3, 3, 'F');
+
+    // En-tête du tableau avec style moderne
+    pdf.setFillColor(styles.headerBg[0], styles.headerBg[1], styles.headerBg[2]);
+    pdf.roundedRect(margin, yPos, tableWidth, rowHeight, 3, 3, 'F');
+    
+    // Effet de dégradé sur l'en-tête (simulation)
+    pdf.setFillColor(styles.primaryMedium[0], styles.primaryMedium[1], styles.primaryMedium[2]);
+    pdf.rect(margin, yPos + rowHeight - 3, tableWidth, 1, 'F');
+    
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(11);
+    pdf.setTextColor(styles.headerText[0], styles.headerText[1], styles.headerText[2]);
+    pdf.text('HORAIRES', margin + 8, yPos + 12);
+    
+    DAYS.forEach((day, index) => {
+        const dayX = margin + colWidth * (index + 1) + colWidth/2;
+        pdf.text(day.toUpperCase(), dayX, yPos + 12, { align: 'center' });
+    });
+
+    yPos += rowHeight;
+
+    // === CORPS DU TABLEAU AVEC STYLE ÉLÉGANT ===
+    TIME_SLOTS.forEach((slot, slotIndex) => {
+        // Pause déjeuner avec design sophistiqué
+        if (slot.lunch) {
+            // Fond avec bordure dorée élégante
+            pdf.setFillColor(styles.lunchBg[0], styles.lunchBg[1], styles.lunchBg[2]);
+            pdf.roundedRect(margin, yPos, tableWidth, rowHeight, 2, 2, 'F');
+            
+            // Bordure dorée subtile
+            pdf.setDrawColor(styles.lunchBorder[0], styles.lunchBorder[1], styles.lunchBorder[2]);
+            pdf.setLineWidth(0.5);
+            pdf.roundedRect(margin, yPos, tableWidth, rowHeight, 2, 2, 'S');
+            
+            // Texte élégant centré
+            pdf.setTextColor(styles.lunchText[0], styles.lunchText[1], styles.lunchText[2]);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(12);
+            pdf.text(` PAUSE DÉJEUNER  •  ${slot.start} - ${slot.end}`, 
+                     margin + tableWidth / 2, yPos + 12, { align: 'center' });
+            pdf.setFont('helvetica', 'normal');
+            
+            yPos += rowHeight;
+            return;
+        }
+
+        // Alternance des couleurs avec style moderne
+        const isEven = slotIndex % 2 === 0;
+        if (isEven) {
+            pdf.setFillColor(styles.rowEvenBg[0], styles.rowEvenBg[1], styles.rowEvenBg[2]);
+            pdf.rect(margin, yPos, tableWidth, rowHeight, 'F');
+        }
+
+        // Colonne des heures avec style distinct
+        pdf.setFillColor(styles.primaryLight[0], styles.primaryLight[1], styles.primaryLight[2]);
+        pdf.rect(margin, yPos, colWidth, rowHeight, 'F');
+        
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(10);
+        pdf.text(`${slot.start}`, margin + colWidth/2, yPos + 8, { align: 'center' });
+        pdf.text(`${slot.end}`, margin + colWidth/2, yPos + 14, { align: 'center' });
+        pdf.setFont('helvetica', 'normal');
+
+        // Événements pour chaque jour avec design moderne
+        DAYS.forEach((day, dayIndex) => {
+            const dayName = day.toLowerCase();
+            const event = localEvents.find(ev => 
+                moment(ev.date).format('dddd').toLowerCase() === dayName && 
+                ev.heure_debut === slot.start
+            );
+
+            if (event) {
+                const cellX = margin + colWidth * (dayIndex + 1);
+                const cellY = yPos;
+                
+                // Fond de l'événement avec ombre subtile
+                pdf.setFillColor(styles.eventBg[0], styles.eventBg[1], styles.eventBg[2]);
+                pdf.roundedRect(cellX + 1, cellY + 1, colWidth - 2, rowHeight - 2, 2, 2, 'F');
+                
+                // Bordure gauche colorée selon le type
+                let typeColor;
+                switch(event.type) {
+                    case 'CM': typeColor = styles.typeCM; break;
+                    case 'TD': typeColor = styles.typeTD; break;
+                    case 'TP': typeColor = styles.typeTP; break;
+                    default: typeColor = styles.typeCours; break;
                 }
-                return '';
-            })
-        );
-        console.log('DAYS:', DAYS);
-        console.log('TIME_SLOTS:', TIME_SLOTS);
-        // En-tête du tableau : Heure + jours
-        const head = [['Heure', ...jours]];
-        const body = [];
-        for (let i = 0; i < TIME_SLOTS.length; i++) {
-            if (TIME_SLOTS[i].lunch) {
-                body.push([
-                    '13:00 - 14:00',
-                    ...Array(DAYS.length).fill("PAUSE DÉJEUNER")
-                ]);
-            } else if (grid[body.length]) {
-                body.push([TIME_SLOTS[i].start, ...grid[body.length]]);
-            }
-        }
-        console.log('head for PDF:', head);
-        console.log('body for PDF:', JSON.stringify(body, null, 2));
-        autoTable(pdf, {
-            head,
-            body,
-            startY: 52,
-            styles: { fontSize: 14, cellPadding: 6, valign: 'middle', halign: 'center', minCellHeight: 18 },
-            headStyles: { fillColor: [49, 46, 129], textColor: 255, fontStyle: 'bold' },
-            bodyStyles: { textColor: 20 },
-            alternateRowStyles: { fillColor: [240, 240, 255] },
-            margin: { left: 10, right: 10 },
-            theme: 'grid',
-            didDrawCell: (data) => {
-                if (data.section === 'body' && data.cell.raw && data.cell.raw !== '') {
-                    pdf.setFillColor(232, 240, 254);
-                    pdf.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, 'F');
+                
+                pdf.setFillColor(typeColor[0], typeColor[1], typeColor[2]);
+                pdf.rect(cellX + 1, cellY + 1, 2, rowHeight - 2, 'F');
+                
+                // Contenu de l'événement avec typographie soignée
+                const textX = cellX + 6;
+                let textY = cellY + 6;
+                
+                // Nom du cours (titre principal)
+                pdf.setFont('helvetica', 'bold');
+                pdf.setFontSize(9);
+                pdf.setTextColor(styles.titleText[0], styles.titleText[1], styles.titleText[2]);
+                pdf.text(event.cours?.nom || '', textX, textY);
+                textY += 4;
+                
+                // Enseignant
+                pdf.setFont('helvetica', 'normal');
+                pdf.setFontSize(8);
+                pdf.setTextColor(styles.subtitleText[0], styles.subtitleText[1], styles.subtitleText[2]);
+                pdf.text(` ${event.enseignants?.nom || ''}`, textX, textY);
+                textY += 3;
+                
+                // Salle
+                pdf.text(` ${event.salles?.nom || ''}`, textX, textY);
+                
+                // Badge type moderne dans le coin
+                if (event.type) {
+                    const badgeWidth = 18;
+                    const badgeHeight = 6;
+                    const badgeX = cellX + colWidth - badgeWidth - 3;
+                    const badgeY = cellY + 2;
+                    
+                    pdf.setFillColor(typeColor[0], typeColor[1], typeColor[2]);
+                    pdf.roundedRect(badgeX, badgeY, badgeWidth, badgeHeight, 2, 2, 'F');
+                    
+                    pdf.setTextColor(255, 255, 255);
+                    pdf.setFont('helvetica', 'bold');
+                    pdf.setFontSize(7);
+                    pdf.text(event.type, badgeX + badgeWidth/2, badgeY + 4, { align: 'center' });
+                    pdf.setFont('helvetica', 'normal');
                 }
             }
         });
-        pdf.save('emploi-du-temps.pdf');
-    };
+
+        yPos += rowHeight;
+    });
+
+    // === BORDURES ÉLÉGANTES ET FINITIONS ===
+    pdf.setDrawColor(styles.border[0], styles.border[1], styles.border[2]);
+    pdf.setLineWidth(0.3);
+    
+    // Bordure principale du tableau avec coins arrondis
+    pdf.roundedRect(margin, 45, tableWidth, yPos - 45, 3, 3, 'S');
+    
+    // Lignes de séparation verticales subtiles
+    for (let i = 1; i <= DAYS.length; i++) {
+        const x = margin + colWidth * i;
+        pdf.setDrawColor(styles.border[0], styles.border[1], styles.border[2]);
+        pdf.setLineWidth(0.2);
+        pdf.line(x, 45 + rowHeight, x, yPos);
+    }
+    
+    // Lignes de séparation horizontales subtiles (sauf pause déjeuner)
+    let currentY = 45 + rowHeight;
+    TIME_SLOTS.forEach((slot) => {
+        if (!slot.lunch) {
+            pdf.setDrawColor(styles.border[0], styles.border[1], styles.border[2]);
+            pdf.setLineWidth(0.1);
+            pdf.line(margin + colWidth, currentY, margin + tableWidth, currentY);
+        }
+        currentY += rowHeight;
+    });
+
+    // === PIED DE PAGE ÉLÉGANT ===
+    const footerY = yPos + 15;
+    
+    // Ligne décorative
+    pdf.setDrawColor(styles.primaryLight[0], styles.primaryLight[1], styles.primaryLight[2]);
+    pdf.setLineWidth(1);
+    pdf.line(margin, footerY, margin + tableWidth, footerY);
+    
+    // Informations du pied de page
+    pdf.setFont('helvetica', 'italic');
+    pdf.setFontSize(8);
+    pdf.setTextColor(styles.subtitleText[0], styles.subtitleText[1], styles.subtitleText[2]);
+    
+    const now = new Date();
+    const dateString = now.toLocaleDateString('fr-FR', { 
+        day: 'numeric', 
+        month: 'long', 
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+    
+    pdf.text(`Généré le ${dateString}`, margin, footerY + 8);
+    pdf.text('Planning académique automatisé', margin + tableWidth - 60, footerY + 8);
+
+    // === LÉGENDE DES TYPES DE COURS ===
+    const legendY = footerY + 15;
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(9);
+    pdf.setTextColor(styles.titleText[0], styles.titleText[1], styles.titleText[2]);
+    pdf.text('LÉGENDE :', margin, legendY);
+    
+    const legendItems = [
+        { type: 'CM', color: styles.typeCM, label: 'Cours Magistral' },
+        { type: 'TD', color: styles.typeTD, label: 'Travaux Dirigés' },
+        { type: 'TP', color: styles.typeTP, label: 'Travaux Pratiques' },
+        { type: 'Cours', color: styles.typeCours, label: 'Cours Standard' }
+    ];
+    
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(8);
+    
+    legendItems.forEach((item, index) => {
+        const x = margin + 35 + (index * 60);
+        
+        // Petit carré coloré
+        pdf.setFillColor(item.color[0], item.color[1], item.color[2]);
+        pdf.roundedRect(x, legendY - 3, 4, 4, 1, 1, 'F');
+        
+        // Texte de la légende
+        pdf.setTextColor(styles.bodyText[0], styles.bodyText[1], styles.bodyText[2]);
+        pdf.text(`${item.type} - ${item.label}`, x + 7, legendY);
+    });
+
+    pdf.save('emploi-du-temps-elegant.pdf');
+};
 
     const exportPDFList = async () => {
         const pdf = new jsPDF({ orientation: 'landscape' });
@@ -253,43 +469,49 @@ export default function TimetableGrid({ events, currentDate, sectionName, niveau
         pdf.save('liste-evenements.pdf');
     };
 
-    const exportHTML = () => {
-        const weekStart = moment(currentDate).startOf('week');
-        const jours = DAYS;
-        const creneaux = TIME_SLOTS.filter(slot => !slot.lunch);
-        let html = `<!DOCTYPE html><html lang='fr'><head><meta charset='UTF-8'><title>Emploi du temps</title><style>table{border-collapse:collapse;width:100%}th,td{border:1px solid #888;padding:8px;text-align:center}th{background:#312e81;color:#fff}tr:nth-child(even){background:#f0f4ff}</style></head><body>`;
-        html += `<h2>Emploi du temps du ${weekStart.format('DD/MM/YYYY')} au ${weekStart.clone().add(4, 'days').format('DD/MM/YYYY')}</h2>`;
-        html += '<table><thead><tr><th>Heure</th>';
-        for (const day of jours) html += `<th>${day}</th>`;
-        html += '</tr></thead><tbody>';
-        for (const slot of TIME_SLOTS) {
-            if (slot.lunch) {
-                html += `<tr><td colspan='${jours.length + 1}' style='background:#fffbe6;color:#b45309;font-weight:bold'>🥗 Pause Déjeuner (${slot.start} - ${slot.end})</td></tr>`;
-            } else {
-                html += `<tr><td>${slot.start} - ${slot.end}</td>`;
-                for (let dayIdx = 0; dayIdx < jours.length; dayIdx++) {
-                    const cellDate = weekStart.clone().add(dayIdx, 'days').format('YYYY-MM-DD');
-                    const event = localEvents.find(ev => ev.date === cellDate && ev.heure_debut === slot.start);
-                    if (event) {
-                        html += `<td><b>${event.cours?.nom || ''}</b><br>${event.enseignants?.nom || ''}<br>${event.salles?.nom || ''}<br><span style='font-size:10px;color:#fff;background:#6366f1;border-radius:4px;padding:2px 4px'>${event.type || ''}</span></td>`;
-                    } else {
-                        html += '<td></td>';
-                    }
+const exportHTML = () => {
+    const jours = DAYS;
+    const creneaux = TIME_SLOTS.filter(slot => !slot.lunch);
+    
+    let html = `<!DOCTYPE html><html lang='fr'><head><meta charset='UTF-8'><title>Emploi du temps</title><style>table{border-collapse:collapse;width:100%}th,td{border:1px solid #888;padding:8px;text-align:center}th{background:#312e81;color:#fff}tr:nth-child(even){background:#f0f4ff}</style></head><body>`;
+    html += `<h2>Emploi du temps hebdomadaire</h2>`;
+    html += '<table><thead><tr><th>Heure</th>';
+    for (const day of jours) html += `<th>${day}</th>`;
+    html += '</tr></thead><tbody>';
+    
+    for (const slot of TIME_SLOTS) {
+        if (slot.lunch) {
+            html += `<tr><td colspan='${jours.length + 1}' style='background:#fffbe6;color:#b45309;font-weight:bold'>🥗 Pause Déjeuner (${slot.start} - ${slot.end})</td></tr>`;
+        } else {
+            html += `<tr><td>${slot.start} - ${slot.end}</td>`;
+            for (let dayIdx = 0; dayIdx < jours.length; dayIdx++) {
+                const dayName = jours[dayIdx].toLowerCase();
+                const event = localEvents.find(ev => 
+                    moment(ev.date).format('dddd').toLowerCase() === dayName && 
+                    ev.heure_debut === slot.start
+                );
+
+                if (event) {
+                    html += `<td><b>${event.cours?.nom || ''}</b><br>${event.enseignants?.nom || ''}<br>${event.salles?.nom || ''}<br><span style='font-size:10px;color:#fff;background:#6366f1;border-radius:4px;padding:2px 4px'>${event.type || ''}</span></td>`;
+                } else {
+                    html += '<td></td>';
                 }
-                html += '</tr>';
             }
+            html += '</tr>';
         }
-        html += '</tbody></table></body></html>';
-        const blob = new Blob([html], { type: 'text/html' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'emploi-du-temps.html';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    };
+    }
+    html += '</tbody></table></body></html>';
+    
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'emploi-du-temps.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+};
 
     const addTestEvent = () => {
         const weekStart = moment(currentDate).startOf('week');

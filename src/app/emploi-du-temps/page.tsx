@@ -10,7 +10,7 @@ moment.updateLocale('fr', { week: { dow: 0 } }); // 0 = dimanche
 
 // Types pour les données
 interface Section {
-    id: string
+    id: number
     nom: string
 }
 
@@ -51,6 +51,7 @@ export default function EmploiDuTempsPage() {
         }
         fetchSections()
     }, [])
+    // Ajoutez ce useEffect supplémentaire
 
     // 2. Charger l'emploi du temps quand une section est sélectionnée
     useEffect(() => {
@@ -68,8 +69,11 @@ export default function EmploiDuTempsPage() {
         setMessage('')
         
         // A. Trouver tous les groupes de la section
-        const { data: groupes, error: groupesError } = await supabase
-            .from('groupes').select('id').eq('section_id', sectionId);
+     // Dans fetchTimetable(), modifiez la requête groupes :
+const { data: groupes, error: groupesError } = await supabase
+    .from('groupes')
+    .select('id, niveau') // Ajoutez niveau ici
+    .eq('section_id', sectionId);
 
         if (groupesError) {
             console.error("Erreur lors de la récupération des groupes:", groupesError);
@@ -77,7 +81,12 @@ export default function EmploiDuTempsPage() {
             setEvents([]);
             return;
         }
-
+     
+if (groupes && groupes.length > 0) {
+    setCurrentNiveau(getMainNiveau(groupes));
+} else {
+    setCurrentNiveau('Non spécifié');
+}
         const groupeIds = groupes?.map(g => g.id) || [];
         console.log("Groupes récupérés:", groupeIds);
 
@@ -175,9 +184,12 @@ export default function EmploiDuTempsPage() {
     }
 
     // Ajout pour PDF pro
-    const selectedSectionObj = sections.find(s => s.id === selectedSection);
+    
+    const selectedSectionObj = sections.find(s => String(s.id) === selectedSection);
     const sectionName = selectedSectionObj ? selectedSectionObj.nom : '';
+
     // À adapter selon ta logique métier
+    
     const niveau = sectionName.split(' ')[0] || '';
     // Calcul période semaine (dimanche-jeudi)
     const weekStart = currentWeek;
@@ -185,6 +197,26 @@ export default function EmploiDuTempsPage() {
     const dateFin = weekStart.clone().add(4, 'days').format('DD/MM/YYYY'); // Dimanche à Jeudi
     // Log pour vérifier la date du dimanche de la semaine affichée
     console.log('Date du dimanche (colonne 0) :', weekStart.format('YYYY-MM-DD'));
+   const getMainNiveau = (groupes: any[]): string => {
+    if (!groupes || groupes.length === 0) return 'Non spécifié';
+    
+    // Comptez les occurrences de chaque niveau
+    const niveauCounts: Record<string, number> = {};
+    groupes.forEach(g => {
+        if (g.niveau) {
+            niveauCounts[g.niveau] = (niveauCounts[g.niveau] || 0) + 1;
+        }
+    });
+    
+    // Retourne le niveau le plus fréquent
+    const mostFrequent = Object.entries(niveauCounts).sort((a, b) => b[1] - a[1])[0];
+    return mostFrequent ? mostFrequent[0] : groupes[0].niveau || 'Non spécifié';
+};
+
+// Ajoutez un state pour stocker le niveau
+const [currentNiveau, setCurrentNiveau] = useState<string>('');
+
+// Dans fetchTimetable(), après avoir récupéré les groupes :
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-indigo-100 p-4 sm:p-6 lg:p-8">
@@ -269,7 +301,7 @@ export default function EmploiDuTempsPage() {
                             events={events}
                             currentDate={weekStart.toDate()}
                             sectionName={sectionName}
-                            niveau={niveau}
+                            niveau={currentNiveau}
                             dateDebut={dateDebut}
                             dateFin={dateFin}
                         />
