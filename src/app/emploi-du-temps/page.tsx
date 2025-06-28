@@ -6,6 +6,7 @@ import TimetableGrid from '@/src/components/TimetableGrid'
 import Link from 'next/link'
 import { FaArrowLeft, FaCogs, FaChevronLeft, FaChevronRight } from 'react-icons/fa'
 import moment from 'moment'
+import 'moment/locale/fr'
 moment.updateLocale('fr', { week: { dow: 0 } }); // 0 = dimanche
 
 // Types pour les données
@@ -26,7 +27,13 @@ type EventData = {
 };
 
 const joursSemaine: { [key: string]: number } = {
-    'Dimanche': 1,'Lundi': 2, 'Mardi': 3, 'Mercredi': 4, 'Jeudi': 5,
+    'Lundi': 1,
+    'Mardi': 2,
+    'Mercredi': 3,
+    'Jeudi': 4,
+    'Vendredi': 5,
+    'Samedi': 6,
+    'Dimanche': 7
 };
 
 export default function EmploiDuTempsPage() {
@@ -172,12 +179,12 @@ export default function EmploiDuTempsPage() {
     }
 
     // Fonction utilitaire pour déterminer le niveau principal
-    const getMainNiveau = (groupes: any[]): string => {
+    const getMainNiveau = (groupes: { niveau: string | null }[]): string => {
         if (!groupes || groupes.length === 0) return 'Non spécifié';
         
         // Comptez les occurrences de chaque niveau
         const niveauCounts: Record<string, number> = {};
-        groupes.forEach((g: any) => {
+        groupes.forEach((g) => {
             if (g.niveau) {
                 niveauCounts[g.niveau] = (niveauCounts[g.niveau] || 0) + 1;
             }
@@ -188,12 +195,12 @@ export default function EmploiDuTempsPage() {
         return mostFrequent ? mostFrequent[0] : groupes[0].niveau || 'Non spécifié';
     };
 
-    // 3. Fonction pour récupérer et formater l'emploi du temps (avec useCallback)
+    // Fonction fetchTimetable avec useCallback pour éviter les re-renders infinis
     const fetchTimetable = useCallback(async (sectionId: string) => {
-        setLoading(true)
-        setMessage('')
-        
-        // A. Trouver tous les groupes de la section
+        setLoading(true);
+        setMessage('');
+
+        // A. Récupérer tous les groupes de cette section
         const { data: groupes, error: groupesError } = await supabase
             .from('groupes')
             .select('id, niveau')
@@ -215,7 +222,7 @@ export default function EmploiDuTempsPage() {
         console.log("Groupes récupérés:", groupeIds);
 
         // B. Trouver toutes les séances de ces groupes
-        let seances: any[] = [];
+        let seances: { id: string; cours_id: string }[] = [];
         let seancesError = null;
         if (groupeIds.length > 0) {
             // D'abord récupérer toutes les séances des groupes
@@ -301,22 +308,50 @@ export default function EmploiDuTempsPage() {
 
         // D. Transformer les données pour le composant TimetableGrid
         const weekStart = currentWeek;
-        const formattedEvents = timetableData.map((item: any) => ({
-            id: item.id,
-            date: weekStart.clone().isoWeekday(joursSemaine[item.jour]).format('YYYY-MM-DD'),
-            heure_debut: item.heure_debut ? item.heure_debut.substring(0,5) : '',
-            heure_fin: item.heure_fin ? item.heure_fin.substring(0,5) : '',
-            type: item.seances?.types_seances?.nom || '',
-            cours: { nom: item.seances?.cours?.nom || '' },
-            enseignants: { nom: item.seances?.enseignants?.nom || 'N/A' },
-            salles: { nom: item.salles?.nom || '' }
-        }));
+        const formattedEvents = timetableData.map((item: unknown) => {
+            const data = item as { 
+                id: string; 
+                jour: string; 
+                heure_debut: string; 
+                heure_fin: string; 
+                seances?: { 
+                    types_seances?: { nom: string }; 
+                    cours?: { nom: string }; 
+                    enseignants?: { nom: string } 
+                }; 
+                salles?: { nom: string } 
+            };
+            
+            // Calculer la date correcte en utilisant le mapping des jours
+            const dayNumber = joursSemaine[data.jour];
+            let eventDate;
+            
+            if (!dayNumber) {
+                console.error(`Jour non reconnu: ${data.jour}, utilisation du lundi par défaut`);
+                eventDate = weekStart.clone().add(0, 'days'); // Lundi par défaut
+            } else {
+                // Calculer la date en partant du dimanche (jour 0) et en ajoutant le bon nombre de jours
+                eventDate = weekStart.clone().add(dayNumber - 1, 'days');
+            }
+            
+            return {
+                id: data.id,
+                date: eventDate.format('YYYY-MM-DD'),
+                heure_debut: data.heure_debut ? data.heure_debut.substring(0,5) : '',
+                heure_fin: data.heure_fin ? data.heure_fin.substring(0,5) : '',
+                type: data.seances?.types_seances?.nom || '',
+                cours: { nom: data.seances?.cours?.nom || '' },
+                enseignants: { nom: data.seances?.enseignants?.nom || 'N/A' },
+                salles: { nom: data.salles?.nom || '' }
+            };
+        });
+        
         console.log('formattedEvents:', formattedEvents);
 
         setEvents(formattedEvents);
         setLoading(false);
     }, [currentWeek, selectedNiveau]);
-    
+
     // 2. Charger l'emploi du temps quand une section est sélectionnée
     useEffect(() => {
         if (selectedSection) {
@@ -373,7 +408,9 @@ export default function EmploiDuTempsPage() {
                 <header className="mb-8">
                     <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
                         <div className="flex items-center gap-4">
-                            <img src="/logo.png" alt="Logo" className="h-14 w-14 rounded shadow bg-white object-contain border" onError={e => e.currentTarget.style.display='none'} />
+                            <div className="h-14 w-14 rounded shadow bg-white object-contain border flex items-center justify-center">
+                                <span className="text-indigo-600 font-bold text-lg">EDT</span>
+                            </div>
                             <div>
                                 <h1 className="text-4xl font-extrabold text-indigo-800 tracking-tight mb-1">Emploi du Temps</h1>
                                 <div className="text-gray-600 text-sm font-medium">
@@ -384,7 +421,7 @@ export default function EmploiDuTempsPage() {
                             </div>
                         </div>
                         <Link href="/" className="text-indigo-600 hover:text-indigo-800 flex items-center text-base font-semibold">
-                            <FaArrowLeft className="mr-2" /> Retour à l'accueil
+                            <FaArrowLeft className="mr-2" /> Retour &agrave; l&#39;accueil
                         </Link>
                     </div>
                     {/* Semaine navigation */}
@@ -503,7 +540,7 @@ export default function EmploiDuTempsPage() {
                             className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition-colors disabled:bg-indigo-300 disabled:cursor-not-allowed"
                         >
                             <FaCogs className={isGenerating ? 'animate-spin' : ''} />
-                            {isGenerating ? 'Génération...' : "Générer l'Emploi du Temps"}
+                            {isGenerating ? 'Génération...' : "Générer l&apos;Emploi du Temps"}
                         </button>
                     </div>
 
@@ -515,7 +552,7 @@ export default function EmploiDuTempsPage() {
                 </div>
 
                 {loading ? (
-                     <div className="text-center py-10 text-gray-500">Chargement de l'emploi du temps...</div>
+                     <div className="text-center py-10 text-gray-500">Chargement de l&apos;emploi du temps...</div>
                 ) : events.length > 0 ? (
                     <div className="overflow-x-auto rounded-2xl shadow-lg border border-indigo-100 bg-white">
                         {/* Légende des types de cours */}

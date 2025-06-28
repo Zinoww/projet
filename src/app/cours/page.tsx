@@ -74,7 +74,7 @@ export default function CoursPage() {
                         throw new Error('Chaque ligne doit avoir un "nom" valide.');
                     }
                     if (row.niveau && !NIVEAUX.includes(row.niveau.trim())) {
-                        throw new Error(`Le niveau '${row.niveau}' n'est pas valide. Utilisez L1, L2, L3, M1 ou M2.`);
+                        throw new Error(`Le niveau &apos;${row.niveau}&apos; n&apos;est pas valide. Utilisez L1, L2, L3, M1 ou M2.`);
                     }
                     return { 
                         nom: row.nom.trim(),
@@ -94,7 +94,7 @@ export default function CoursPage() {
                 }
 
             } catch (err) {
-                setError(`Erreur lors de l'importation : ${(err as Error)?.message || 'Inconnue'}`);
+                setError(`Erreur lors de l&apos;importation : ${(err as Error)?.message || 'Inconnue'}`);
             } finally {
                 setLoading(false);
                 e.target.value = '';
@@ -119,7 +119,7 @@ export default function CoursPage() {
         
         if (error) {
             console.error('Erreur ajout:', error)
-            setError(`Erreur lors de l'ajout du cours: ${error.message}`)
+            setError(`Erreur lors de l&apos;ajout du cours: ${error.message}`)
             setSuccess(null)
         } else if (data) {
             fetchCours() // Re-fetch pour avoir la liste à jour
@@ -241,7 +241,7 @@ export default function CoursPage() {
                         </label>
                         <Link href="/" className="flex items-center text-indigo-600 hover:text-indigo-800">
                             <FaArrowLeft className="mr-2"/>
-                            Retour à l'accueil
+                            Retour &agrave; l&apos;accueil
                         </Link>
                     </div>
                 </div>

@@ -90,7 +90,7 @@ export default function SectionsPage() {
 
                     const filiereId = filiereNameToIdMap.get(row.filiere_nom.trim().toLowerCase());
                     if (!filiereId) {
-                        throw new Error(`La filière "${row.filiere_nom}" pour la section "${row.nom}" n'a pas été trouvée.`);
+                        throw new Error(`La filière "${row.filiere_nom}" pour la section "${row.nom}" n&apos;a pas été trouvée.`);
                     }
 
                     return { 
@@ -110,8 +110,9 @@ export default function SectionsPage() {
                     setError("Le fichier Excel ne contient aucune ligne valide à importer.");
                 }
 
-            } catch (err: any) {
-                setError(`Erreur lors de l'importation : ${err.message}`);
+            } catch (err: unknown) {
+                const errorMessage = err instanceof Error ? err.message : 'Erreur inconnue';
+                setError(`Erreur d&apos;importation : ${errorMessage}`);
             } finally {
                 setLoading(false);
                 e.target.value = '';
@@ -135,7 +136,7 @@ export default function SectionsPage() {
             .select('*, filieres(nom)')
         
         if (error) {
-            setError(`Erreur lors de l'ajout: ${error.message}`)
+            setError(`Erreur lors de l&apos;ajout: ${error.message}`)
         } else if (data) {
             setSections([...sections, ...(data as Section[])])
             setNewSection({ nom: '', filiere_id: '' })
@@ -203,7 +204,7 @@ export default function SectionsPage() {
                         </label>
                         <Link href="/" className="flex items-center text-indigo-600 hover:text-indigo-800">
                             <FaArrowLeft className="mr-2"/>
-                            Retour à l'accueil
+                            Retour &agrave; l&#39;accueil
                         </Link>
                     </div>
                 </div>

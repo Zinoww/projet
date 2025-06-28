@@ -11,7 +11,7 @@ interface Enseignant {
     nom: string
     email: string | null
     heures_travail: number | null
-    disponibilites: any | null
+    disponibilites: unknown | null
 }
 
 interface ExcelRow {
@@ -48,7 +48,7 @@ export default function EnseignantsPage() {
         if (!jsonString) return null
         try {
             return JSON.parse(jsonString)
-        } catch (e) {
+        } catch {
             return null
         }
     }
@@ -79,7 +79,7 @@ export default function EnseignantsPage() {
                     if (row.disponibilites) {
                         try {
                             disponibilitesJson = JSON.parse(row.disponibilites);
-                        } catch (jsonError) {
+                        } catch {
                             throw new Error(`Format JSON invalide pour les disponibilités de "${row.nom}".`);
                         }
                     }
@@ -103,8 +103,8 @@ export default function EnseignantsPage() {
                     setError("Aucune ligne valide à importer.");
                 }
 
-            } catch (err: any) {
-                setError(`Erreur d'importation : ${err.message}`);
+            } catch (err: unknown) {
+                setError(`Erreur l&apos;importation : ${(err as Error)?.message || 'Inconnue'}`);
             } finally {
                 setLoading(false);
                 e.target.value = '';
@@ -137,7 +137,7 @@ export default function EnseignantsPage() {
         }]).select()
         
         if (error) {
-            setError(`Erreur lors de l'ajout: ${error.message}`)
+            setError(`Erreur lors de l&apos;ajout: ${error.message}`)
         } else if (data) {
             setEnseignants([...enseignants, ...(data as Enseignant[])])
             setNewEnseignant({ nom: '', email: '', heures_travail: '', disponibilites: '' })
@@ -226,7 +226,7 @@ export default function EnseignantsPage() {
                         </label>
                         <Link href="/" className="flex items-center text-indigo-600 hover:text-indigo-800">
                             <FaArrowLeft className="mr-2"/>
-                            Retour à l'accueil
+                            Retour &agrave; l&#39;accueil
                         </Link>
                     </div>
                 </div>
@@ -242,7 +242,7 @@ export default function EnseignantsPage() {
                             <input type="number" value={newEnseignant.heures_travail} onChange={(e) => setNewEnseignant({ ...newEnseignant, heures_travail: e.target.value })} placeholder="Heures de service" className="w-full p-2 border rounded-lg" />
                         </div>
                         <input type="email" value={newEnseignant.email} onChange={(e) => setNewEnseignant({ ...newEnseignant, email: e.target.value })} placeholder="Adresse e-mail" className="w-full p-2 border rounded-lg" />
-                        <textarea value={newEnseignant.disponibilites} onChange={(e) => setNewEnseignant({ ...newEnseignant, disponibilites: e.target.value })} placeholder='Disponibilités (Format JSON), ex: {"Lundi": ["08:00-12:00"]}' className="w-full p-2 border rounded-lg font-mono text-sm" rows={3}/>
+                        <textarea value={newEnseignant.disponibilites} onChange={(e) => setNewEnseignant({ ...newEnseignant, disponibilites: e.target.value })} placeholder="Disponibilités (Format JSON), ex: {&quot;Lundi&quot;: [&quot;08:00-12:00&quot;]}" className="w-full p-2 border rounded-lg font-mono text-sm" rows={3}/>
                         <button type="submit" className="w-full md:w-auto bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center justify-center">
                             <FaPlus className="mr-2"/> Ajouter
                         </button>

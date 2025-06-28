@@ -93,7 +93,7 @@ export default function GroupesPage() {
                         throw new Error(`Ligne invalide: 'nom' et 'section_nom' sont requis.`);
                     }
                     if (row.niveau && !NIVEAUX.includes(row.niveau.trim())) {
-                        throw new Error(`Le niveau '${row.niveau}' n'est pas valide. Utilisez L1, L2, L3, M1 ou M2.`);
+                        throw new Error(`Le niveau &apos;${row.niveau}&apos; n&apos;est pas valide. Utilisez L1, L2, L3, M1 ou M2.`);
                     }
                     const sectionId = sectionNameToIdMap.get(row.section_nom.trim().toLowerCase());
                     if (!sectionId) {
@@ -118,8 +118,9 @@ export default function GroupesPage() {
                     setError("Aucune ligne valide à importer.");
                 }
 
-            } catch (err: any) {
-                setError(`Erreur d'importation : ${err.message}`);
+            } catch (err: unknown) {
+                const errorMessage = err instanceof Error ? err.message : 'Erreur inconnue';
+                setError(`Erreur lors de l&apos;importation : ${errorMessage}`);
             } finally {
                 setLoading(false);
                 e.target.value = '';
@@ -148,7 +149,7 @@ export default function GroupesPage() {
             .select('*, sections(*, filieres(nom))')
         
         if (error) {
-            setError(`Erreur lors de l'ajout: ${error.message}`)
+            setError(`Erreur lors de l&apos;ajout: ${error.message}`)
         } else if (data) {
             setGroupes([...groupes, ...(data as Groupe[])])
             setNewGroupe({ nom: '', niveau: '', specialite: '', section_id: '' })
@@ -221,7 +222,7 @@ export default function GroupesPage() {
                         </label>
                         <Link href="/" className="flex items-center text-indigo-600 hover:text-indigo-800">
                             <FaArrowLeft className="mr-2"/>
-                            Retour à l'accueil
+                            Retour &agrave; l&#39;accueil
                         </Link>
                     </div>
                 </div>

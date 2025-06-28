@@ -73,8 +73,8 @@ export default function FilieresPage() {
                     setError("Le fichier Excel ne contient aucune ligne valide à importer.");
                 }
 
-            } catch (err: any) {
-                setError(`Erreur lors de l'importation : ${err.message}`);
+            } catch (err: unknown) {
+                setError(`Erreur lors de l&apos;importation : ${(err as Error)?.message || 'Inconnue'}`);
             } finally {
                 setLoading(false);
                 e.target.value = ''; 
@@ -95,7 +95,7 @@ export default function FilieresPage() {
 
         const { data, error } = await supabase.from('filieres').insert([{ nom: newFiliere.nom.trim() }]).select()
         if (error) {
-            setError(`Erreur lors de l'ajout: ${error.message}`)
+            setError(`Erreur lors de l&apos;ajout: ${error.message}`)
         } else if (data) {
             setFilieres([...filieres, ...(data as Filiere[])])
             setNewFiliere({ nom: '' })
@@ -158,7 +158,7 @@ export default function FilieresPage() {
                         </label>
                         <Link href="/" className="flex items-center text-indigo-600 hover:text-indigo-800">
                             <FaArrowLeft className="mr-2"/>
-                            Retour à l'accueil
+                            Retour &agrave; l&#39;accueil
                         </Link>
                     </div>
                 </div>

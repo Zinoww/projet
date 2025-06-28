@@ -1,7 +1,7 @@
 'use client'
 import { supabase } from '@/src/lib/supabaseClient'
 import { useState, useEffect } from 'react'
-import { genererEmploiDuTemps, diagnostiquerDonneesSimple, verifierCohérence, getDonneesReference, diagnostiquerSeances } from '@/src/lib/generation'
+import { genererEmploiDuTemps, diagnostiquerDonneesSimple, verifierCohérence } from '@/src/lib/generation'
 import Header from '@/src/components/Header'
 import AuthGuard from '@/src/components/AuthGuard'
 
@@ -9,16 +9,6 @@ interface Section {
     id: string;
     nom: string;
 }
-
-interface Groupe {
-    id: string;
-    nom: string;
-    niveau: string | null;
-    specialite: string | null;
-    section_id: string;
-}
-
-const NIVEAUX = ['L1', 'L2', 'L3', 'M1', 'M2'];
 
 export default function GenerationPage() {
     const [loading, setLoading] = useState(false)
@@ -199,44 +189,6 @@ export default function GenerationPage() {
         setLoading(false)
     }
 
-    const afficherDonneesReference = async () => {
-        setLoading(true)
-        setMessage('')
-        setDiagnostic('')
-        try {
-            const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Timeout: La requête a pris trop de temps')), 10000)
-            );
-            const referencePromise = getDonneesReference();
-            const rapport = await Promise.race([referencePromise, timeoutPromise]) as string;
-            setDiagnostic(rapport);
-        } catch (error) {
-            setDiagnostic(`❌ Erreur lors de la récupération des données de référence: ${error}\n\nEssayez de rafraîchir la page ou vérifiez votre connexion.`);
-        }
-        setLoading(false)
-    }
-
-    const diagnostiquerSeancesLocale = async () => {
-        if (!selectedSection) {
-            setMessage('Veuillez sélectionner une section.')
-            return
-        }
-        setLoading(true)
-        setMessage('')
-        setDiagnostic('')
-        try {
-            const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Timeout: La requête a pris trop de temps')), 10000)
-            );
-            const seancesPromise = diagnostiquerSeances(selectedSection);
-            const rapport = await Promise.race([seancesPromise, timeoutPromise]) as string;
-            setDiagnostic(rapport);
-        } catch (error) {
-            setDiagnostic(`❌ Erreur lors du diagnostic des séances: ${error}\n\nEssayez de rafraîchir la page ou vérifiez votre connexion.`);
-        }
-        setLoading(false)
-    }
-
     return (
         <AuthGuard>
             <div className="min-h-screen bg-gradient-to-br from-gray-50 to-indigo-100 p-4 sm:p-6 lg:p-8">
@@ -337,20 +289,6 @@ export default function GenerationPage() {
                         )}
 
                         <div className="flex gap-4 mb-4 flex-wrap">
-                            <button
-                                onClick={diagnostiquerSeancesLocale}
-                                className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
-                                disabled={loading || !selectedSection}
-                            >
-                                {loading ? 'Analyse...' : 'Analyser les séances'}
-                            </button>
-                            <button
-                                onClick={afficherDonneesReference}
-                                className="bg-purple-600 text-white px-6 py-2 rounded hover:bg-purple-700 disabled:opacity-50"
-                                disabled={loading}
-                            >
-                                {loading ? 'Chargement...' : 'Données de référence'}
-                            </button>
                             <button
                                 onClick={verifierCohérenceLocale}
                                 className="bg-red-600 text-white px-6 py-2 rounded hover:bg-red-700 disabled:opacity-50"

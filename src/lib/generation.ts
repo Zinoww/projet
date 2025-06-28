@@ -2,24 +2,6 @@ import { supabase } from '@/src/lib/supabaseClient'
 
 // --- 1. TYPE DEFINITIONS ---
 
-interface Seance {
-    id: string;
-    duree_minutes: number;
-    cours_id: string;
-    type_id: string;
-    groupe_id: string;
-    enseignant_id: string | null;
-    // Relations
-    enseignants: { id: string, nom: string, disponibilites: any }[] | null;
-    groupes: { id: string, nom: string, section_id: string }[];
-}
-
-interface Salle {
-    id: string;
-    nom: string;
-    capacite: number | null;
-}
-
 interface Creneau {
     debut: string; // "HH:mm:ss"
     fin: string;
@@ -41,14 +23,6 @@ function shuffle<T>(array: T[]): T[] {
         [array[i], array[j]] = [array[j], array[i]];
     }
     return array;
-}
-
-// Ajout d'une fonction utilitaire pour vérifier la présence d'une entité
-function assertDefined<T>(value: T | undefined | null, message: string): T {
-  if (value === undefined || value === null) {
-    throw new Error(message);
-  }
-  return value;
 }
 
 // Fonction de diagnostic simplifiée pour éviter les problèmes de performance
@@ -122,8 +96,9 @@ export async function diagnostiquerDonneesSimple(sectionId: string): Promise<str
                 
                 // Compter par type
                 const typesCount: { [key: string]: number } = {};
-                seancesDetails?.forEach((seance: any) => {
-                    const type = (seance.types_seances?.nom || 'Inconnu');
+                seancesDetails?.forEach((seance: unknown) => {
+                    const seanceData = seance as { types_seances?: { nom: string } };
+                    const type = (seanceData.types_seances?.nom || 'Inconnu');
                     typesCount[type] = (typesCount[type] || 0) + 1;
                 });
                 
@@ -178,16 +153,33 @@ export async function genererEmploiDuTemps(
 
     const groupeIds = groupes.map(g => g.id);
 
-    // b. Récupérer toutes les séances de ces groupes
+    // b. Récupérer TOUS les cours du niveau si spécifié
+    let coursIds: string[] = [];
+    if (niveau) {
+        setMessage(`1/6 - Récupération de TOUS les cours du niveau ${niveau}...`);
+        const { data: cours, error: coursError } = await supabase
+            .from('cours')
+            .select('id, nom')
+            .eq('niveau', niveau);
+        
+        if (coursError || !cours || cours.length === 0) {
+            setMessage(`Aucun cours trouvé pour le niveau ${niveau}.`);
+            return false;
+        }
+        
+        coursIds = cours.map(c => c.id);
+        console.log(`Cours trouvés pour ${niveau}:`, cours.map(c => c.nom));
+    }
+
+    // c. Récupérer toutes les séances de ces groupes ET cours
     let seancesQuery = supabase
         .from('seances')
         .select('*, cours(nom, niveau), types_seances(nom), enseignants(nom)')
         .in('groupe_id', groupeIds);
 
-    // Si un niveau est spécifié, filtrer par le niveau des cours
-    if (niveau) {
-        seancesQuery = seancesQuery.eq('cours.niveau', niveau);
-        setMessage(`1/6 - Récupération des données pour le niveau ${niveau}...`);
+    // Si un niveau est spécifié, filtrer par les cours de ce niveau
+    if (niveau && coursIds.length > 0) {
+        seancesQuery = seancesQuery.in('cours_id', coursIds);
     }
 
     const { data: seances, error: seancesError } = await seancesQuery;
@@ -200,22 +192,50 @@ export async function genererEmploiDuTemps(
         return false;
     }
 
-    // c. Récupérer toutes les salles
+    // Afficher le résumé des séances trouvées
+    const coursTrouves = [...new Set(seances.map(s => (s.cours as { nom: string })?.nom))];
+    console.log(`Séances trouvées pour ${niveau || 'tous niveaux'}:`, {
+        totalSeances: seances.length,
+        coursConcernes: coursTrouves,
+        groupesConcernes: groupes.length
+    });
+
+    // d. Récupérer toutes les salles
     const { data: salles, error: sallesError } = await supabase.from('salles').select('id, nom, capacite');
     if (sallesError || !salles || salles.length === 0) {
         setMessage(`Erreur ou aucune salle disponible. ${sallesError?.message || ''}`);
         return false;
     }
 
+    // Séparer les amphis des salles normales
+    const amphis = salles.filter(s => 
+        s.nom.toLowerCase().includes('amphi') || 
+        s.nom.toLowerCase().includes('amphithéâtre') ||
+        s.nom.toLowerCase().includes('auditorium') ||
+        (s.capacite && s.capacite >= 100) // Salles avec grande capacité considérées comme amphis
+    );
+    const sallesNormales = salles.filter(s => 
+        !s.nom.toLowerCase().includes('amphi') && 
+        !s.nom.toLowerCase().includes('amphithéâtre') &&
+        !s.nom.toLowerCase().includes('auditorium') &&
+        (!s.capacite || s.capacite < 100) // Salles avec capacité normale
+    );
+
+    console.log(`Salles disponibles:`, salles.map(s => `${s.nom} (${s.capacite} places)`));
+    console.log(`Amphis disponibles:`, amphis.map(s => `${s.nom} (${s.capacite} places)`));
+    console.log(`Salles normales disponibles:`, sallesNormales.map(s => `${s.nom} (${s.capacite} places)`));
+
     // --- Étape 2: Organisation des séances par type ---
     setMessage('2/6 - Organisation des séances par type...');
 
     // Séparer les séances par type
-    const seancesCM = seances.filter(s => (s.types_seances as any)?.nom?.toLowerCase().includes('cm'));
-    const seancesTD = seances.filter(s => (s.types_seances as any)?.nom?.toLowerCase().includes('td'));
-    const seancesTP = seances.filter(s => (s.types_seances as any)?.nom?.toLowerCase().includes('tp'));
+    const seancesCM = seances.filter(s => (s.types_seances as { nom: string })?.nom?.toLowerCase().includes('cm'));
+    const seancesTD = seances.filter(s => (s.types_seances as { nom: string })?.nom?.toLowerCase().includes('td'));
+    const seancesTP = seances.filter(s => (s.types_seances as { nom: string })?.nom?.toLowerCase().includes('tp'));
 
     console.log(`Séances trouvées: ${seancesCM.length} CM, ${seancesTD.length} TD, ${seancesTP.length} TP`);
+    console.log(`Groupes dans la section: ${groupes.length} (${groupes.map(g => g.nom).join(', ')})`);
+    console.log(`Capacité nécessaire pour CM: ${groupes.length * 30} étudiants`);
 
     // --- Étape 3: Initialisation du planning ---
     setMessage('3/6 - Initialisation du planning...');
@@ -242,6 +262,8 @@ export async function genererEmploiDuTemps(
     // --- Étape 4: Placement des CM (tous les groupes ensemble) ---
     setMessage('4/6 - Placement des cours magistraux...');
 
+    const sessionsNonPlacees: string[] = [];
+
     for (const seanceCM of seancesCM) {
         let placee = false;
         
@@ -262,7 +284,7 @@ export async function genererEmploiDuTemps(
                 }
 
                 // Trouver une salle appropriée (plus grande capacité pour CM)
-                const salleCM = salles.find(s => s.capacite && s.capacite >= groupes.length * 30); // Estimation 30 étudiants par groupe
+                const salleCM = amphis.find(s => s.capacite && s.capacite >= groupes.length * 30); // Estimation 30 étudiants par groupe
                 if (!salleCM) continue;
 
                 // Vérifier si la salle est libre
@@ -294,8 +316,20 @@ export async function genererEmploiDuTemps(
         }
 
         if (!placee) {
-            setMessage(`Impossible de placer le CM: ${(seanceCM.cours as any)?.nom}`);
-            return false;
+            const nomCours = (seanceCM.cours as { nom: string })?.nom || 'Cours inconnu';
+            sessionsNonPlacees.push(`CM: ${nomCours}`);
+            console.log(`Impossible de placer le CM: ${nomCours}`);
+            
+            // Debug: Vérifier les contraintes
+            const capaciteNecessaire = groupes.length * 30;
+            const sallesAdequates = amphis.filter(s => s.capacite && s.capacite >= capaciteNecessaire);
+            console.log(`Amphis avec capacité ≥${capaciteNecessaire}: ${sallesAdequates.map(s => s.nom).join(', ')}`);
+            console.log(`Total amphis disponibles: ${amphis.length}`);
+            
+            if (seanceCM.enseignant_id) {
+                const enseignant = seances.find(s => s.id === seanceCM.id)?.enseignants as { nom: string };
+                console.log(`Enseignant: ${enseignant?.nom || 'Non assigné'}`);
+            }
         }
     }
 
@@ -324,7 +358,7 @@ export async function genererEmploiDuTemps(
                 }
 
                 // Trouver une salle appropriée
-                const salle = salles.find(s => s.capacite && s.capacite >= 30); // Capacité pour un groupe
+                const salle = sallesNormales.find(s => s.capacite && s.capacite >= 30); // Capacité pour un groupe
                 if (!salle) continue;
 
                 // Vérifier si la salle est libre ou peut être partagée
@@ -335,7 +369,7 @@ export async function genererEmploiDuTemps(
                 if (seancesDansSalle.length > 0) {
                     // Vérifier si on peut partager la salle (même type de séance)
                     const seanceExistante = seances.find(s => s.id === seancesDansSalle[0].seance_id);
-                    const memeType = (seance.types_seances as any)?.nom === (seanceExistante?.types_seances as any)?.nom;
+                    const memeType = (seance.types_seances as { nom: string })?.nom === (seanceExistante?.types_seances as { nom: string })?.nom;
                     
                     if (!memeType) continue; // Types différents, ne peut pas partager
                     
@@ -363,8 +397,23 @@ export async function genererEmploiDuTemps(
         }
 
         if (!placee) {
-            setMessage(`Impossible de placer la séance: ${(seance.cours as any)?.nom} - ${(seance.types_seances as any)?.nom}`);
-            return false;
+            const nomCours = (seance.cours as { nom: string })?.nom || 'Cours inconnu';
+            const typeSeance = (seance.types_seances as { nom: string })?.nom || 'Type inconnu';
+            sessionsNonPlacees.push(`${typeSeance}: ${nomCours}`);
+            console.log(`Impossible de placer la séance: ${nomCours} - ${typeSeance}`);
+            
+            // Debug: Vérifier les contraintes
+            const sallesAdequates = sallesNormales.filter(s => s.capacite && s.capacite >= 30);
+            console.log(`Salles normales avec capacité ≥30: ${sallesAdequates.map(s => s.nom).join(', ')}`);
+            console.log(`Total salles normales disponibles: ${sallesNormales.length}`);
+            
+            if (seance.enseignant_id) {
+                const enseignant = seances.find(s => s.id === seance.id)?.enseignants as { nom: string };
+                console.log(`Enseignant: ${enseignant?.nom || 'Non assigné'}`);
+            }
+            
+            const groupe = groupes.find(g => g.id === seance.groupe_id);
+            console.log(`Groupe: ${groupe?.nom || 'Inconnu'}`);
         }
     }
 
@@ -389,7 +438,27 @@ export async function genererEmploiDuTemps(
         return false;
     }
 
-    setMessage('Génération terminée avec succès !');
+    // c. Afficher le rapport final
+    const seancesPlacees = planning.length;
+    const seancesTotales = seances.length;
+    
+    let messageFinal = `Génération terminée ! ${seancesPlacees}/${seancesTotales} séances placées.`;
+    messageFinal += `\n\nLogique de placement:`;
+    messageFinal += `\n• CM → Amphis (${amphis.length} disponibles)`;
+    messageFinal += `\n• TD/TP → Salles normales (${sallesNormales.length} disponibles)`;
+    
+    if (sessionsNonPlacees.length > 0) {
+        messageFinal += `\n\nSessions non placées:\n${sessionsNonPlacees.join('\n')}`;
+        messageFinal += '\n\nCauses possibles:';
+        messageFinal += '\n• Conflits d\'enseignants';
+        messageFinal += '\n• Salles insuffisantes ou occupées';
+        messageFinal += '\n• Créneaux horaires saturés';
+        messageFinal += '\n• Contraintes de partage de salles';
+        messageFinal += '\n• Manque d\'amphis pour les CM';
+        messageFinal += '\n• Manque de salles normales pour les TD/TP';
+    }
+    
+    setMessage(messageFinal);
     return true;
 }
 
@@ -450,261 +519,7 @@ export async function verifierCohérence(): Promise<string> {
         } else {
             rapport += `\n💡 SOLUTIONS:\n`;
             rapport += `1. Vérifiez que toutes les sections existent\n`;
-            rapport += `2. Corrigez les section_id des groupes orphelins\n`;
-            rapport += `3. Ou supprimez les groupes sans section valide\n`;
-        }
-        
-    } catch (error) {
-        rapport += `❌ Erreur générale: ${error}\n`;
-    }
-    
-    return rapport;
-}
-
-// Fonction pour valider les données d'import Excel
-export async function validerDonneesImport(donnees: any[]): Promise<{ valide: boolean; erreurs: string[]; donneesValides: any[] }> {
-    const erreurs: string[] = [];
-    const donneesValides: any[] = [];
-    
-    try {
-        // Récupérer toutes les données de référence
-        const { data: cours, error: coursError } = await supabase.from('cours').select('id, nom');
-        const { data: types, error: typesError } = await supabase.from('types_seances').select('id, nom');
-        const { data: groupes, error: groupesError } = await supabase.from('groupes').select('id, nom');
-        const { data: enseignants, error: enseignantsError } = await supabase.from('enseignants').select('id, nom');
-        
-        if (coursError) erreurs.push(`Erreur cours: ${coursError.message}`);
-        if (typesError) erreurs.push(`Erreur types: ${typesError.message}`);
-        if (groupesError) erreurs.push(`Erreur groupes: ${groupesError.message}`);
-        if (enseignantsError) erreurs.push(`Erreur enseignants: ${enseignantsError.message}`);
-        
-        // Traiter chaque ligne
-        donnees.forEach((ligne, index) => {
-            const numeroLigne = index + 2; // +2 car Excel commence à 1 et on a un header
-            const erreursLigne: string[] = [];
-            
-            // Vérifier le cours
-            const coursTrouve = cours?.find(c => c.nom.toLowerCase() === ligne.cours?.toLowerCase());
-            if (!coursTrouve) {
-                erreursLigne.push(`Cours "${ligne.cours}" non trouvé`);
-            }
-            
-            // Vérifier le type
-            const typeTrouve = types?.find(t => t.nom.toLowerCase() === ligne.type?.toLowerCase());
-            if (!typeTrouve) {
-                erreursLigne.push(`Type "${ligne.type}" non trouvé`);
-            }
-            
-            // Vérifier le groupe
-            const groupeTrouve = groupes?.find(g => g.nom.toLowerCase() === ligne.groupe?.toLowerCase());
-            if (!groupeTrouve) {
-                erreursLigne.push(`Groupe "${ligne.groupe}" non trouvé`);
-            }
-            
-            // Vérifier l'enseignant (optionnel)
-            let enseignantTrouve = null;
-            if (ligne.enseignant) {
-                enseignantTrouve = enseignants?.find(e => e.nom.toLowerCase() === ligne.enseignant.toLowerCase());
-                if (!enseignantTrouve) {
-                    erreursLigne.push(`Enseignant "${ligne.enseignant}" non trouvé`);
-                }
-            }
-            
-            // Vérifier la durée
-            if (!ligne.duree || isNaN(ligne.duree) || ligne.duree <= 0) {
-                erreursLigne.push(`Durée invalide: ${ligne.duree}`);
-            }
-            
-            // Si pas d'erreurs, ajouter aux données valides
-            if (erreursLigne.length === 0) {
-                donneesValides.push({
-                    ...ligne,
-                    cours_id: coursTrouve?.id,
-                    type_id: typeTrouve?.id,
-                    groupe_id: groupeTrouve?.id,
-                    enseignant_id: enseignantTrouve?.id || null
-                });
-            } else {
-                erreurs.push(`Ligne ${numeroLigne} (${ligne.cours}): ${erreursLigne.join(', ')}`);
-            }
-        });
-        
-    } catch (error) {
-        erreurs.push(`Erreur générale: ${error}`);
-    }
-    
-    return {
-        valide: erreurs.length === 0,
-        erreurs,
-        donneesValides
-    };
-}
-
-// Fonction pour afficher les données de référence pour l'import
-export async function getDonneesReference(): Promise<string> {
-    let rapport = '=== DONNÉES DE RÉFÉRENCE POUR IMPORT ===\n\n';
-    
-    try {
-        // Cours disponibles
-        const { data: cours, error: coursError } = await supabase
-            .from('cours')
-            .select('id, nom')
-            .order('nom');
-        
-        rapport += '📚 COURS DISPONIBLES:\n';
-        if (coursError) {
-            rapport += `❌ Erreur: ${coursError.message}\n`;
-        } else {
-            cours?.forEach(c => {
-                rapport += `  - ${c.nom}\n`;
-            });
-        }
-        rapport += '\n';
-        
-        // Types de séances
-        const { data: types, error: typesError } = await supabase
-            .from('types_seances')
-            .select('id, nom')
-            .order('nom');
-        
-        rapport += '🏷️ TYPES DE SÉANCES:\n';
-        if (typesError) {
-            rapport += `❌ Erreur: ${typesError.message}\n`;
-        } else {
-            types?.forEach(t => {
-                rapport += `  - ${t.nom}\n`;
-            });
-        }
-        rapport += '\n';
-        
-        // Groupes
-        const { data: groupes, error: groupesError } = await supabase
-            .from('groupes')
-            .select('id, nom')
-            .order('nom');
-        
-        rapport += '👥 GROUPES DISPONIBLES:\n';
-        if (groupesError) {
-            rapport += `❌ Erreur: ${groupesError.message}\n`;
-        } else {
-            groupes?.forEach(g => {
-                rapport += `  - ${g.nom}\n`;
-            });
-        }
-        rapport += '\n';
-        
-        // Enseignants
-        const { data: enseignants, error: enseignantsError } = await supabase
-            .from('enseignants')
-            .select('id, nom')
-            .order('nom');
-        
-        rapport += '👨‍🏫 ENSEIGNANTS DISPONIBLES:\n';
-        if (enseignantsError) {
-            rapport += `❌ Erreur: ${enseignantsError.message}\n`;
-        } else {
-            enseignants?.forEach(e => {
-                rapport += `  - ${e.nom}\n`;
-            });
-        }
-        rapport += '\n';
-        
-        rapport += '📋 FORMAT EXCEL ATTENDU:\n';
-        rapport += 'Colonnes: cours | type | groupe | enseignant | duree\n';
-        rapport += 'Exemple: Programmation Web | TD | L1 Info G1 | Dupont Jean | 90\n';
-        
-    } catch (error) {
-        rapport += `❌ Erreur générale: ${error}\n`;
-    }
-    
-    return rapport;
-}
-
-// Fonction de diagnostic détaillé pour les séances
-export async function diagnostiquerSeances(groupeId: string): Promise<string> {
-    let rapport = '=== DIAGNOSTIC DÉTAILLÉ DES SÉANCES ===\n\n';
-    
-    try {
-        // 1. Récupérer le groupe
-        const { data: groupe, error: groupeError } = await supabase
-            .from('groupes')
-            .select('*')
-            .eq('id', groupeId)
-            .single();
-        
-        if (groupeError || !groupe) {
-            rapport += `❌ Groupe non trouvé\n`;
-            return rapport;
-        }
-        
-        rapport += `👥 Groupe: ${groupe.nom}\n`;
-        rapport += `📊 Niveau: ${groupe.niveau || 'Non défini'}\n`;
-        rapport += `📊 Spécialité: ${groupe.specialite || 'Non définie'}\n\n`;
-        
-        // 2. Récupérer toutes les séances de ce groupe
-        const { data: seances, error: seancesError } = await supabase
-            .from('seances')
-            .select('*, cours(nom), types_seances(nom), enseignants(nom)')
-            .eq('groupe_id', groupeId)
-            .order('id');
-        
-        if (seancesError) {
-            rapport += `❌ Erreur séances: ${seancesError.message}\n`;
-            return rapport;
-        }
-        
-        rapport += `⏰ Séances pour ce groupe: ${seances?.length || 0}\n\n`;
-        
-        if (seances && seances.length > 0) {
-            rapport += '📋 Détail des séances:\n';
-            seances.forEach((seance: any, index) => {
-                rapport += `  ${index + 1}. ${seance.cours?.nom || 'Cours inconnu'} - ${seance.types_seances?.nom || 'Type inconnu'}\n`;
-                rapport += `     Durée: ${seance.duree_minutes} minutes\n`;
-                if (seance.enseignants?.nom) {
-                    rapport += `     Enseignant: ${seance.enseignants.nom}\n`;
-                } else {
-                    rapport += `     Enseignant: Non assigné\n`;
-                }
-                rapport += '\n';
-            });
-        } else {
-            rapport += '❌ Aucune séance trouvée pour ce groupe\n\n';
-        }
-        
-        // 3. Vérifier les contraintes
-        rapport += '🔍 VÉRIFICATION DES CONTRAINTES:\n';
-        
-        if (seances && seances.length > 0) {
-            // Vérifier les séances sans enseignant
-            const seancesSansEnseignant = seances.filter((s: any) => !s.enseignant_id);
-            if (seancesSansEnseignant.length > 0) {
-                rapport += `⚠️ ${seancesSansEnseignant.length} séance(s) sans enseignant assigné\n`;
-            }
-            
-            // Vérifier les durées
-            const durees = seances.map((s: any) => s.duree_minutes).filter(Boolean);
-            if (durees.length > 0) {
-                const dureeTotale = durees.reduce((sum, duree) => sum + duree, 0);
-                rapport += `📊 Durée totale des séances: ${dureeTotale} minutes\n`;
-                rapport += `📊 Durée moyenne par séance: ${Math.round(dureeTotale / durees.length)} minutes\n`;
-            }
-        }
-        
-        rapport += '\n💡 RECOMMANDATIONS:\n';
-        if (!seances || seances.length === 0) {
-            rapport += '1. Créez des séances pour ce groupe\n';
-        }
-        if (seances && seances.length > 0) {
-            const seancesSansEnseignant = seances.filter((s: any) => !s.enseignant_id);
-            if (seancesSansEnseignant.length > 0) {
-                rapport += '2. Assignez des enseignants aux séances\n';
-            }
-        }
-        if (!groupe.niveau) {
-            rapport += '3. Définissez un niveau pour ce groupe\n';
-        }
-        if (!groupe.specialite) {
-            rapport += '4. Définissez une spécialité pour ce groupe\n';
+            rapport += `2. Supprimez ou corrigez les groupes orphelins\n`;
         }
         
     } catch (error) {

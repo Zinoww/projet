@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, FormEvent, ChangeEvent } from 'react'
+import { useState, useEffect, FormEvent, ChangeEvent, useCallback } from 'react'
 import { supabase } from '@/src/lib/supabaseClient'
 import { FaClipboardList, FaPlus, FaTrash, FaPencilAlt, FaArrowLeft, FaFileExcel } from 'react-icons/fa'
 import Link from 'next/link'
@@ -48,8 +48,8 @@ export default function SeancesPage() {
     const [seances, setSeances] = useState<Seance[]>([])
     const [cours, setCours] = useState<Cour[]>([])
     const [types, setTypes] = useState<TypeSeance[]>([])
-    const [groupes, setGroupes] = useState<Groupe[]>([])
     const [enseignants, setEnseignants] = useState<Enseignant[]>([])
+    const [groupes, setGroupes] = useState<Groupe[]>([])
     const [selectedNiveau, setSelectedNiveau] = useState<string>('')
 
     // États pour le formulaire et l'UI
@@ -64,54 +64,39 @@ export default function SeancesPage() {
     const [editingSelectedNiveau, setEditingSelectedNiveau] = useState<string>('')
 
     // Chargement initial des données
-    useEffect(() => {
-        fetchInitialData()
+    const fetchInitialData = useCallback(async () => {
+        setLoading(true)
+        try {
+            const [seancesResult, coursResult, typesResult, enseignantsResult, groupesResult] = await Promise.all([
+                supabase.from('seances').select('*, cours(*), types_seances(*), enseignants(*), groupes(*)').order('id', { ascending: false }),
+                supabase.from('cours').select('*').order('nom', { ascending: true }),
+                supabase.from('types_seances').select('*').order('nom', { ascending: true }),
+                supabase.from('enseignants').select('*').order('nom', { ascending: true }),
+                supabase.from('groupes').select('*').order('nom', { ascending: true })
+            ])
+
+            if (seancesResult.error) throw seancesResult.error
+            if (coursResult.error) throw coursResult.error
+            if (typesResult.error) throw typesResult.error
+            if (enseignantsResult.error) throw enseignantsResult.error
+            if (groupesResult.error) throw groupesResult.error
+
+            setSeances(seancesResult.data || [])
+            setCours(coursResult.data || [])
+            setTypes(typesResult.data || [])
+            setEnseignants(enseignantsResult.data || [])
+            setGroupes(groupesResult.data || [])
+        } catch {
+            setError('Impossible de charger les données.')
+        } finally {
+            setLoading(false)
+        }
     }, [])
 
-    const fetchInitialData = async () => {
-        setLoading(true)
-        await Promise.all([
-            fetchSeances(),
-            fetchCours(),
-            fetchTypesSeances(),
-            fetchGroupes(),
-            fetchEnseignants(),
-        ])
-        setLoading(false)
-    }
-
-    // Fonctions de fetch
-    const fetchSeances = async () => {
-        const { data, error } = await supabase
-            .from('seances')
-            .select(`
-                id,
-                duree_minutes,
-                cours:cours_id (id, nom),
-                types_seances:type_id (id, nom),
-                groupes:groupe_id (id, nom),
-                enseignants:enseignant_id (id, nom)
-            `)
-        if (error) setError('Impossible de charger les séances.')
-        else setSeances(data as any)
-    }
-    const fetchCours = async () => {
-        const { data, error } = await supabase.from('cours').select('id, nom, niveau').order('nom')
-        if (!error) setCours(data as Cour[])
-    }
-    const fetchTypesSeances = async () => {
-        const { data, error } = await supabase.from('types_seances').select('id, nom').order('nom')
-        console.log('types_seances:', data, error);
-        if (!error) setTypes(data)
-    }
-    const fetchGroupes = async () => {
-        const { data, error } = await supabase.from('groupes').select('id, nom, niveau').order('nom')
-        if (!error) setGroupes(data)
-    }
-    const fetchEnseignants = async () => {
-        const { data, error } = await supabase.from('enseignants').select('id, nom').order('nom')
-        if (!error) setEnseignants(data)
-    }
+    // Chargement initial des données
+    useEffect(() => {
+        fetchInitialData()
+    }, [fetchInitialData])
 
     const handleImportExcel = async (e: ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -124,6 +109,13 @@ export default function SeancesPage() {
             const typesMap = new Map(types.map(t => [t.nom.toLowerCase(), t.id]));
             const groupesMap = new Map(groupes.map(g => [g.nom.toLowerCase(), g.id]));
             const enseignantsMap = new Map(enseignants.map(en => [en.nom.toLowerCase(), en.id]));
+            
+            // Debug: afficher les données disponibles
+            console.log('Cours disponibles:', Array.from(coursMap.keys()));
+            console.log('Types disponibles:', Array.from(typesMap.keys()));
+            console.log('Groupes disponibles:', Array.from(groupesMap.keys()));
+            console.log('Enseignants disponibles:', Array.from(enseignantsMap.keys()));
+            
             const reader = new FileReader();
             reader.onload = async (event) => {
                 try {
@@ -132,16 +124,37 @@ export default function SeancesPage() {
                     const sheetName = workbook.SheetNames[0];
                     const sheet = workbook.Sheets[sheetName];
                     const jsonData = XLSX.utils.sheet_to_json<ExcelRow>(sheet);
+                    
+                    console.log('Données Excel:', jsonData);
+                    
                     const seancesToInsert = jsonData.map(row => {
-                        const cours_id = coursMap.get(row.cours_nom?.trim().toLowerCase());
-                        const type_id = typesMap.get(row.type_nom?.trim().toLowerCase());
-                        const groupe_id = groupesMap.get(row.groupe_nom?.trim().toLowerCase());
+                        const coursNom = row.cours_nom?.trim().toLowerCase();
+                        const typeNom = row.type_nom?.trim().toLowerCase();
+                        const groupeNom = row.groupe_nom?.trim().toLowerCase();
+                        
+                        const cours_id = coursMap.get(coursNom);
+                        const type_id = typesMap.get(typeNom);
+                        const groupe_id = groupesMap.get(groupeNom);
                         const enseignant_id = row.enseignant_nom ? enseignantsMap.get(row.enseignant_nom.trim().toLowerCase()) : null;
+                        
+                        console.log(`Ligne "${row.cours_nom}":`, {
+                            coursNom,
+                            typeNom,
+                            groupeNom,
+                            cours_id: cours_id ? 'TROUVÉ' : 'NON TROUVÉ',
+                            type_id: type_id ? 'TROUVÉ' : 'NON TROUVÉ',
+                            groupe_id: groupe_id ? 'TROUVÉ' : 'NON TROUVÉ'
+                        });
+                        
                         if (!cours_id || !type_id || !groupe_id) {
-                            throw new Error(`Données invalides pour la ligne avec le cours "${row.cours_nom}". Vérifiez que le cours, le type et le groupe existent.`);
+                            const missing = [];
+                            if (!cours_id) missing.push(`cours "${row.cours_nom}"`);
+                            if (!type_id) missing.push(`type "${row.type_nom}"`);
+                            if (!groupe_id) missing.push(`groupe "${row.groupe_nom}"`);
+                            throw new Error(`Données manquantes pour la ligne "${row.cours_nom}": ${missing.join(', ')}. Vérifiez que ces éléments existent dans la base de données.`);
                         }
                         if (row.enseignant_nom && enseignant_id === undefined) {
-                            throw new Error(`L'enseignant "${row.enseignant_nom}" n'a pas été trouvé.`);
+                            throw new Error(`L&apos;enseignant "${row.enseignant_nom}" n&apos;a pas été trouvé.`);
                         }
                         return {
                             cours_id,
@@ -161,16 +174,18 @@ export default function SeancesPage() {
                     } else {
                         setError("Le fichier Excel ne contenait aucune ligne valide.");
                     }
-                } catch (err: any) {
-                    setError(`Erreur lors du traitement du fichier : ${err.message}`);
+                } catch (err: unknown) {
+                    const errorMessage = err instanceof Error ? err.message : 'Erreur inconnue';
+                    setError(`Erreur lors du traitement du fichier : ${errorMessage}`);
                 } finally {
                     setLoading(false);
                     e.target.value = '';
                 }
             };
             reader.readAsBinaryString(file);
-        } catch (err: any) {
-            setError(`Erreur d'importation : ${err.message}`);
+        } catch (err: unknown) {
+            const errorMessage = err instanceof Error ? err.message : 'Erreur inconnue';
+            setError(`Erreur d'importation : ${errorMessage}`);
             setLoading(false);
         }
     };
@@ -178,9 +193,9 @@ export default function SeancesPage() {
     // Fonctions CRUD
     const handleAddSeance = async (e: FormEvent) => {
         e.preventDefault()
-        const { cours_id, type_id, groupe_id } = newSeance
-        if (!cours_id || !type_id || !groupe_id) {
-            setError('Cours, Type et Groupe sont obligatoires.')
+        const { cours_id, groupe_id } = newSeance
+        if (!cours_id || !groupe_id) {
+            setError('Cours et Groupe sont obligatoires.')
             return
         }
         setError(null)
@@ -190,10 +205,11 @@ export default function SeancesPage() {
             .insert([{ ...newSeance, enseignant_id: newSeance.enseignant_id || null, duree_minutes: Number(newSeance.duree_minutes) }])
             .select('*, cours(nom), types_seances(nom), groupes(nom), enseignants(nom)')
         if (error) {
-            setError(`Erreur lors de l'ajout: ${error.message}`)
+            const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
+            setError(`Erreur lors de l&apos;ajout: ${errorMessage}`);
         } else if (data) {
             setSeances([...seances, ...(data as Seance[])])
-            setNewSeance({ duree_minutes: '90', cours_id: '', type_id: '', groupe_id: '', enseignant_id: '' })
+            setNewSeance({ duree_minutes: '90', cours_id: '', groupe_id: '', enseignant_id: '', type_id: '' })
             setSuccess('Séance ajoutée avec succès.')
         }
     }
@@ -230,7 +246,13 @@ export default function SeancesPage() {
         if (!editingSeance || !editingSeanceForm) return
 
         // Créer un objet avec seulement les champs qui ont changé
-        const updates: any = {}
+        const updates: Partial<{
+            cours_id: string;
+            type_id: string;
+            groupe_id: string;
+            enseignant_id: string | null;
+            duree_minutes: number;
+        }> = {}
         
         // Comparer chaque champ et ajouter seulement ceux qui ont changé
         if (editingSeanceForm.cours_id && editingSeanceForm.cours_id !== editingSeance.cours_id) {
@@ -276,7 +298,8 @@ export default function SeancesPage() {
             .select('*, cours(nom), types_seances(nom), groupes(nom), enseignants(nom)')
 
         if (error) {
-            setError(`Erreur lors de la mise à jour: ${error.message}`)
+            const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
+            setError(`Erreur lors de la mise à jour: ${errorMessage}`);
         } else {
             setEditingSeance(null)
             setEditingSeanceForm(null)
@@ -339,6 +362,23 @@ export default function SeancesPage() {
                         </div>
                         
                         <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                            <select value={editingSeanceForm.type_id} onChange={e => setEditingSeanceForm(editingSeanceForm ? { ...editingSeanceForm, type_id: e.target.value } : null)} className="w-full p-2 border rounded">
+                                <option value="">Sélectionner un type</option>
+                                {editingSeance.types_seances && (
+                                    <option value={editingSeance.type_id} className="font-semibold bg-gray-100">
+                                        {editingSeance.types_seances.nom} (actuel)
+                                    </option>
+                                )}
+                                {types.filter(t => t.id !== editingSeance.type_id).map(t => (
+                                    <option key={t.id} value={t.id}>
+                                        {t.nom}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        
+                        <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Groupe</label>
                             <select value={editingSeanceForm.groupe_id} onChange={e => setEditingSeanceForm(editingSeanceForm ? { ...editingSeanceForm, groupe_id: e.target.value } : null)} className="w-full p-2 border rounded">
                                 <option value="">Sélectionner un groupe</option>
@@ -350,23 +390,6 @@ export default function SeancesPage() {
                                 {groupes.filter(g => g.id !== editingSeance.groupe_id).map(g => (
                                     <option key={g.id} value={g.id}>
                                         {g.nom}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                        
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-                            <select value={editingSeanceForm.type_id} onChange={e => setEditingSeanceForm({...editingSeanceForm, type_id: e.target.value})} className="w-full p-2 border rounded">
-                                <option value="">Sélectionner un type</option>
-                                {editingSeance.types_seances && (
-                                    <option value={editingSeance.type_id} className="font-semibold bg-gray-100">
-                                        {editingSeance.types_seances.nom} (actuel)
-                                    </option>
-                                )}
-                                {types.filter(t => t.id !== editingSeance.type_id).map(t => (
-                                    <option key={t.id} value={t.id}>
-                                        {t.nom}
                                     </option>
                                 ))}
                             </select>
@@ -433,7 +456,7 @@ export default function SeancesPage() {
                         </label>
                         <Link href="/" className="flex items-center text-indigo-600 hover:text-indigo-800">
                             <FaArrowLeft className="mr-2"/>
-                            Retour à l'accueil
+                            Retour &agrave; l&#39;accueil
                         </Link>
                     </div>
                 </div>
@@ -446,7 +469,7 @@ export default function SeancesPage() {
                     <h2 className="text-2xl font-semibold text-gray-700 mb-4">Ajouter une séance</h2>
                     <form onSubmit={handleAddSeance} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {/* Sélection du niveau */}
-                        <select value={selectedNiveau} onChange={e => { setSelectedNiveau(e.target.value); setNewSeance({ ...newSeance, cours_id: '', groupe_id: '' }) }} className="w-full p-2 border rounded bg-gray-50">
+                        <select value={selectedNiveau} onChange={e => { setSelectedNiveau(e.target.value); setNewSeance({ ...newSeance, cours_id: '', groupe_id: '', type_id: '' }) }} className="w-full p-2 border rounded bg-gray-50">
                             <option value="">Sélectionner un niveau</option>
                             {[...new Set(cours.map(c => c.niveau).filter(Boolean))].map(niv => (
                                 <option key={niv as string} value={niv as string}>{niv}</option>
@@ -457,16 +480,17 @@ export default function SeancesPage() {
                             <option value="">Sélectionner un cours</option>
                             {cours.filter(c => c.niveau === selectedNiveau).map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
                         </select>
+                        {/* Liste des types */}
+                        <select required value={newSeance.type_id} onChange={e => setNewSeance({...newSeance, type_id: e.target.value})} className="w-full p-2 border rounded bg-gray-50">
+                            <option value="">Sélectionner un type</option>
+                            {types.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}
+                        </select>
                         {/* Liste des groupes */}
                         <select required value={newSeance.groupe_id} onChange={e => setNewSeance({...newSeance, groupe_id: e.target.value})} className="w-full p-2 border rounded bg-gray-50">
                             <option value="">Sélectionner un groupe</option>
                             {groupes.map(g => <option key={g.id} value={g.id}>{g.nom}</option>)}
                         </select>
-                        {/* Les autres champs (cours, type, enseignant, durée) */}
-                        <select required value={newSeance.type_id} onChange={e => setNewSeance({...newSeance, type_id: e.target.value})} className="w-full p-2 border rounded bg-gray-50">
-                            <option value="">Sélectionner un type</option>
-                            {types.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}
-                        </select>
+                        {/* Les autres champs (cours, enseignant, durée) */}
                         <select value={newSeance.enseignant_id} onChange={e => setNewSeance({...newSeance, enseignant_id: e.target.value})} className="w-full p-2 border rounded bg-gray-50">
                             <option value="">Sélectionner un enseignant</option>
                             {enseignants.map(e => <option key={e.id} value={e.id}>{e.nom}</option>)}

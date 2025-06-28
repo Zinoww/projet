@@ -3,9 +3,7 @@ import React, { useState, useEffect } from 'react';
 import moment from 'moment';
 import 'moment/locale/fr';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
-import type { DraggableProvided, DroppableProvided } from '@hello-pangea/dnd';
 import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 import autoTable from 'jspdf-autotable';
 
 interface EventData {
@@ -294,7 +292,7 @@ const exportPDF = async () => {
         // Événements pour chaque jour avec design moderne
         DAYS.forEach((day, dayIndex) => {
             const dayName = day.toLowerCase();
-            const event = localEvents.find(ev => 
+            const event = localEvents.find((ev: EventData) => 
                 moment(ev.date).format('dddd').toLowerCase() === dayName && 
                 ev.heure_debut === slot.start
             );
@@ -475,7 +473,6 @@ const exportPDF = async () => {
 
 const exportHTML = () => {
     const jours = DAYS;
-    const creneaux = TIME_SLOTS.filter(slot => !slot.lunch);
     
     // Fonction pour obtenir la couleur HTML selon le type
     const getTypeColorHTML = (type: string) => {
@@ -586,7 +583,7 @@ const exportHTML = () => {
                                 </td>
                                 {DAYS.map((day, dayIdx) => {
                                     const droppableId = `${dayIdx}-${rowIdx}`;
-                                    const event = localEvents.find((ev: any) =>
+                                    const event = localEvents.find((ev: EventData) =>
                                         moment(ev.date).format('dddd').toLowerCase() === day.toLowerCase() &&
                                         ev.heure_debut === slot.start
                                     );
