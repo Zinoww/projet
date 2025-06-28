@@ -40,18 +40,22 @@ const TIME_SLOTS = [
 
 const DAYS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi'];
 
-const typeColorMap: { [key: string]: string } = {
-    'CM': 'bg-red-100 border-l-4 border-red-500',
-    'TD': 'bg-purple-100 border-l-4 border-purple-500',
-    'TP': 'bg-blue-100 border-l-4 border-blue-500',
-    'Cours': 'bg-yellow-100 border-l-4 border-yellow-500',
-};
-
-
 // Ajout utilitaire classNames si manquant
 function classNames(...classes: string[]) {
   return classes.filter(Boolean).join(' ');
 }
+
+// Fonction pour obtenir la couleur selon le type de cours
+const getTypeColor = (type: string) => {
+    const typeColors: { [key: string]: { bg: string; text: string; border: string } } = {
+        'CM': { bg: 'bg-blue-500', text: 'text-white', border: 'border-blue-600' },
+        'TD': { bg: 'bg-green-500', text: 'text-white', border: 'border-green-600' },
+        'TP': { bg: 'bg-purple-500', text: 'text-white', border: 'border-purple-600' }
+    };
+    
+    // Retourner la couleur correspondante ou une couleur par défaut
+    return typeColors[type?.toUpperCase()] || { bg: 'bg-gray-500', text: 'text-white', border: 'border-gray-600' };
+};
 
 export default function TimetableGrid({ events, currentDate, sectionName, niveau, dateDebut, dateFin }: TimetableGridProps) {
     console.log('TimetableGrid events:', events);
@@ -473,6 +477,16 @@ const exportHTML = () => {
     const jours = DAYS;
     const creneaux = TIME_SLOTS.filter(slot => !slot.lunch);
     
+    // Fonction pour obtenir la couleur HTML selon le type
+    const getTypeColorHTML = (type: string) => {
+        const typeColors: { [key: string]: string } = {
+            'CM': '#3b82f6', // blue-500
+            'TD': '#10b981', // green-500
+            'TP': '#8b5cf6' // purple-500
+        };
+        return typeColors[type?.toUpperCase()] || '#6b7280'; // gray-500 par défaut
+    };
+    
     let html = `<!DOCTYPE html><html lang='fr'><head><meta charset='UTF-8'><title>Emploi du temps</title><style>table{border-collapse:collapse;width:100%}th,td{border:1px solid #888;padding:8px;text-align:center}th{background:#312e81;color:#fff}tr:nth-child(even){background:#f0f4ff}</style></head><body>`;
     html += `<h2>Emploi du temps hebdomadaire</h2>`;
     html += '<table><thead><tr><th>Heure</th>';
@@ -492,7 +506,8 @@ const exportHTML = () => {
                 );
 
                 if (event) {
-                    html += `<td><b>${event.cours?.nom || ''}</b><br>${event.enseignants?.nom || ''}<br>${event.salles?.nom || ''}<br><span style='font-size:10px;color:#fff;background:#6366f1;border-radius:4px;padding:2px 4px'>${event.type || ''}</span></td>`;
+                    const typeColor = getTypeColorHTML(event.type);
+                    html += `<td><b>${event.cours?.nom || ''}</b><br>${event.enseignants?.nom || ''}<br>${event.salles?.nom || ''}<br><span style='font-size:10px;color:#fff;background:${typeColor};border-radius:4px;padding:2px 4px;font-weight:bold'>${event.type || ''}</span></td>`;
                 } else {
                     html += '<td></td>';
                 }
@@ -512,30 +527,6 @@ const exportHTML = () => {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 };
-
-    const addTestEvent = () => {
-        const weekStart = moment(currentDate).startOf('week');
-        const testDate = weekStart.format('YYYY-MM-DD');
-        setLocalEvents(prev => {
-            // Vérifier s'il existe déjà un event pour ce créneau/date
-            if (prev.some(ev => ev.date === testDate && ev.heure_debut === '08:00')) {
-                return prev; // Ne rien ajouter si déjà présent
-            }
-            return [
-                ...prev,
-                {
-                    id: Math.random().toString(36).slice(2),
-                    date: testDate,
-                    heure_debut: '08:00',
-                    heure_fin: '09:30',
-                    type: 'CM',
-                    cours: { nom: 'Test Dimanche' },
-                    enseignants: { nom: 'Professeur Test' },
-                    salles: { nom: 'Salle 101' }
-                }
-            ];
-        });
-    };
 
     return (
         <>
@@ -565,12 +556,6 @@ const exportHTML = () => {
             className="mb-4 ml-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
         >
             Exporter en HTML (grille)
-        </button>
-        <button
-            onClick={addTestEvent}
-            className="mb-4 ml-2 px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
-        >
-            Ajouter un événement de test
         </button>
         <DragDropContext onDragEnd={handleDragEnd}>
         <div ref={tableRef} className="overflow-x-auto shadow-md rounded-lg bg-white">
@@ -629,7 +614,11 @@ const exportHTML = () => {
                                                                         </span>
                                                                         <span className="text-xs text-gray-700 font-medium">{event.enseignants?.nom}</span>
                                                                         <span className="text-xs text-gray-500">{event.salles?.nom}</span>
-                                                                        {event.type && <span className="text-[10px] text-white bg-indigo-400 rounded px-1 py-0.5 mt-1">{event.type}</span>}
+                                                                        {event.type && (
+                                                                            <span className={`text-[10px] ${getTypeColor(event.type).bg} ${getTypeColor(event.type).text} ${getTypeColor(event.type).border} border rounded px-2 py-1 mt-1 font-semibold`}>
+                                                                                {event.type}
+                                                                            </span>
+                                                                        )}
                                                                     </div>
                                                                 )}
                                                             </Draggable>

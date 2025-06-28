@@ -223,87 +223,89 @@ export default function SallesPage() {
     )
 
     return (
-        <div className="container mx-auto px-4 sm:px-8 py-8">
-            <div className="flex justify-between items-center mb-8">
-                <div className="flex items-center">
-                    <FaDoorOpen className="text-3xl text-indigo-500 mr-4" />
-                    <h1 className="text-4xl font-bold text-gray-800">Gestion des Salles</h1>
-                </div>
-                <div className="flex items-center gap-4">
-                    <input
-                        type="file"
-                        accept=".xlsx, .xls"
-                        onChange={handleImportExcel}
-                        className="hidden"
-                        id="excel-upload"
-                    />
-                    <label
-                        htmlFor="excel-upload"
-                        className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer"
-                    >
-                        <FaFileExcel />
-                        Importer
-                    </label>
-                    <Link href="/" className="flex items-center text-indigo-600 hover:text-indigo-800">
-                        <FaArrowLeft className="mr-2"/>
-                        Retour à l'accueil
-                    </Link>
-                </div>
-            </div>
-
-            {error && <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6" role="alert"><p>{error}</p></div>}
-            {success && <div className="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-6" role="alert"><p>{success}</p></div>}
-
-            <div className="bg-white p-6 rounded-lg shadow-md mb-8">
-                <h2 className="text-2xl font-semibold text-gray-700 mb-4">Ajouter une salle</h2>
-                <form onSubmit={handleAddSalle} className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <input type="text" value={newSalle.nom} onChange={(e) => setNewSalle({...newSalle, nom: e.target.value})}
-                            placeholder="Nom de la salle" className="md:col-span-2 w-full p-2 border rounded-lg" required />
-                        <input type="number" value={newSalle.capacite} onChange={(e) => setNewSalle({...newSalle, capacite: e.target.value})}
-                            placeholder="Capacité" className="w-full p-2 border rounded-lg" />
+        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-indigo-100">
+            <div className="container mx-auto px-4 sm:px-8 py-8">
+                <div className="flex justify-between items-center mb-8">
+                    <div className="flex items-center">
+                        <FaDoorOpen className="text-3xl text-indigo-500 mr-4" />
+                        <h1 className="text-4xl font-bold text-gray-800">Gestion des Salles</h1>
                     </div>
-                    <input type="text" value={newSalle.type} onChange={(e) => setNewSalle({...newSalle, type: e.target.value})}
-                        placeholder="Type (ex: Amphi, Salle Info)" className="w-full p-2 border rounded-lg" />
-                    <textarea value={newSalle.equipement} onChange={(e) => setNewSalle({...newSalle, equipement: e.target.value})}
-                        placeholder='Équipement (Format JSON), ex: {"projecteur": true}' className="w-full p-2 border rounded-lg font-mono text-sm" rows={3}/>
-                    <button type="submit" className="w-full md:w-auto bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center justify-center">
-                        <FaPlus className="mr-2"/> Ajouter
-                    </button>
-                </form>
-            </div>
+                    <div className="flex items-center gap-4">
+                        <input
+                            type="file"
+                            accept=".xlsx, .xls"
+                            onChange={handleImportExcel}
+                            className="hidden"
+                            id="excel-upload"
+                        />
+                        <label
+                            htmlFor="excel-upload"
+                            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer"
+                        >
+                            <FaFileExcel />
+                            Importer
+                        </label>
+                        <Link href="/" className="flex items-center text-indigo-600 hover:text-indigo-800">
+                            <FaArrowLeft className="mr-2"/>
+                            Retour à l'accueil
+                        </Link>
+                    </div>
+                </div>
 
-            <div className="bg-white shadow-md rounded-lg overflow-hidden">
-                {loading ? <p className="p-4 text-center">Chargement...</p> : (
-                    <table className="min-w-full leading-normal">
-                        <thead>
-                            <tr>
-                                <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Nom</th>
-                                <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Type</th>
-                                <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Capacité</th>
-                                <th className="px-5 py-3 border-b-2 bg-gray-100 text-right text-xs font-semibold uppercase">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {salles.map((salle) => (
-                                <tr key={salle.id} className="hover:bg-gray-50">
-                                    <td className="px-5 py-4 border-b text-sm"><p className="font-semibold">{salle.nom}</p></td>
-                                    <td className="px-5 py-4 border-b text-sm">{salle.type || 'N/A'}</td>
-                                    <td className="px-5 py-4 border-b text-sm">{salle.capacite ?? 'N/A'}</td>
-                                    <td className="px-5 py-4 border-b text-sm text-right">
-                                        <div className="inline-flex space-x-3">
-                                            <button onClick={() => startEditing(salle)} className="text-yellow-600 hover:text-yellow-800"><FaPencilAlt /></button>
-                                            <button onClick={() => handleDeleteSalle(salle.id)} className="text-red-600 hover:text-red-800"><FaTrash /></button>
-                                        </div>
-                                    </td>
+                {error && <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6" role="alert"><p>{error}</p></div>}
+                {success && <div className="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-6" role="alert"><p>{success}</p></div>}
+
+                <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+                    <h2 className="text-2xl font-semibold text-gray-700 mb-4">Ajouter une salle</h2>
+                    <form onSubmit={handleAddSalle} className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <input type="text" value={newSalle.nom} onChange={(e) => setNewSalle({...newSalle, nom: e.target.value})}
+                                placeholder="Nom de la salle" className="md:col-span-2 w-full p-2 border rounded-lg" required />
+                            <input type="number" value={newSalle.capacite} onChange={(e) => setNewSalle({...newSalle, capacite: e.target.value})}
+                                placeholder="Capacité" className="w-full p-2 border rounded-lg" />
+                        </div>
+                        <input type="text" value={newSalle.type} onChange={(e) => setNewSalle({...newSalle, type: e.target.value})}
+                            placeholder="Type (ex: Amphi, Salle Info)" className="w-full p-2 border rounded-lg" />
+                        <textarea value={newSalle.equipement} onChange={(e) => setNewSalle({...newSalle, equipement: e.target.value})}
+                            placeholder='Équipement (Format JSON), ex: {"projecteur": true}' className="w-full p-2 border rounded-lg font-mono text-sm" rows={3}/>
+                        <button type="submit" className="w-full md:w-auto bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center justify-center">
+                            <FaPlus className="mr-2"/> Ajouter
+                        </button>
+                    </form>
+                </div>
+
+                <div className="bg-white shadow-md rounded-lg overflow-hidden">
+                    {loading ? <p className="p-4 text-center">Chargement...</p> : (
+                        <table className="min-w-full leading-normal">
+                            <thead>
+                                <tr>
+                                    <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Nom</th>
+                                    <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Type</th>
+                                    <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Capacité</th>
+                                    <th className="px-5 py-3 border-b-2 bg-gray-100 text-right text-xs font-semibold uppercase">Actions</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                )}
-            </div>
+                            </thead>
+                            <tbody>
+                                {salles.map((salle) => (
+                                    <tr key={salle.id} className="hover:bg-gray-50">
+                                        <td className="px-5 py-4 border-b text-sm"><p className="font-semibold">{salle.nom}</p></td>
+                                        <td className="px-5 py-4 border-b text-sm">{salle.type || 'N/A'}</td>
+                                        <td className="px-5 py-4 border-b text-sm">{salle.capacite ?? 'N/A'}</td>
+                                        <td className="px-5 py-4 border-b text-sm text-right">
+                                            <div className="inline-flex space-x-3">
+                                                <button onClick={() => startEditing(salle)} className="text-yellow-600 hover:text-yellow-800"><FaPencilAlt /></button>
+                                                <button onClick={() => handleDeleteSalle(salle.id)} className="text-red-600 hover:text-red-800"><FaTrash /></button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
 
-            {editingSalle && renderEditForm()}
+                {editingSalle && renderEditForm()}
+            </div>
         </div>
     )
 }

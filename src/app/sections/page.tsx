@@ -179,116 +179,118 @@ export default function SectionsPage() {
     }
 
     return (
-        <div className="container mx-auto px-4 sm:px-8 py-8">
-            <div className="flex justify-between items-center mb-8">
-                <div className="flex items-center">
-                    <FaLayerGroup className="text-3xl text-indigo-500 mr-4" />
-                    <h1 className="text-4xl font-bold text-gray-800">Gestion des Sections</h1>
+        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-indigo-100">
+            <div className="container mx-auto px-4 sm:px-8 py-8">
+                <div className="flex justify-between items-center mb-8">
+                    <div className="flex items-center">
+                        <FaLayerGroup className="text-3xl text-indigo-500 mr-4" />
+                        <h1 className="text-4xl font-bold text-gray-800">Gestion des Sections</h1>
+                    </div>
+                     <div className="flex items-center gap-4">
+                        <input
+                            type="file"
+                            accept=".xlsx, .xls"
+                            onChange={handleImportExcel}
+                            className="hidden"
+                            id="excel-upload"
+                        />
+                        <label
+                            htmlFor="excel-upload"
+                            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer"
+                        >
+                            <FaFileExcel />
+                            Importer
+                        </label>
+                        <Link href="/" className="flex items-center text-indigo-600 hover:text-indigo-800">
+                            <FaArrowLeft className="mr-2"/>
+                            Retour à l'accueil
+                        </Link>
+                    </div>
                 </div>
-                 <div className="flex items-center gap-4">
-                    <input
-                        type="file"
-                        accept=".xlsx, .xls"
-                        onChange={handleImportExcel}
-                        className="hidden"
-                        id="excel-upload"
-                    />
-                    <label
-                        htmlFor="excel-upload"
-                        className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer"
-                    >
-                        <FaFileExcel />
-                        Importer
-                    </label>
-                    <Link href="/" className="flex items-center text-indigo-600 hover:text-indigo-800">
-                        <FaArrowLeft className="mr-2"/>
-                        Retour à l'accueil
-                    </Link>
+
+                {error && <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6" role="alert"><p>{error}</p></div>}
+                {success && <div className="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-6" role="alert"><p>{success}</p></div>}
+
+                <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+                    <h2 className="text-2xl font-semibold text-gray-700 mb-4">Ajouter une section</h2>
+                    <form onSubmit={handleAddSection} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                        <input
+                            type="text"
+                            value={newSection.nom}
+                            onChange={(e) => setNewSection({ ...newSection, nom: e.target.value })}
+                            placeholder="Nom de la section"
+                            className="w-full p-2 border rounded-lg md:col-span-1"
+                            required
+                        />
+                        <select
+                            value={newSection.filiere_id}
+                            onChange={(e) => setNewSection({ ...newSection, filiere_id: e.target.value })}
+                            className="w-full p-2 border rounded-lg md:col-span-1"
+                            required
+                        >
+                            <option value="">-- Choisir une filière --</option>
+                            {filieres.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
+                        </select>
+                        <button type="submit" className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center justify-center md:col-span-1">
+                            <FaPlus className="mr-2"/> Ajouter
+                        </button>
+                    </form>
                 </div>
-            </div>
 
-            {error && <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6" role="alert"><p>{error}</p></div>}
-            {success && <div className="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-6" role="alert"><p>{success}</p></div>}
-
-            <div className="bg-white p-6 rounded-lg shadow-md mb-8">
-                <h2 className="text-2xl font-semibold text-gray-700 mb-4">Ajouter une section</h2>
-                <form onSubmit={handleAddSection} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                    <input
-                        type="text"
-                        value={newSection.nom}
-                        onChange={(e) => setNewSection({ ...newSection, nom: e.target.value })}
-                        placeholder="Nom de la section"
-                        className="w-full p-2 border rounded-lg md:col-span-1"
-                        required
-                    />
-                    <select
-                        value={newSection.filiere_id}
-                        onChange={(e) => setNewSection({ ...newSection, filiere_id: e.target.value })}
-                        className="w-full p-2 border rounded-lg md:col-span-1"
-                        required
-                    >
-                        <option value="">-- Choisir une filière --</option>
-                        {filieres.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
-                    </select>
-                    <button type="submit" className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center justify-center md:col-span-1">
-                        <FaPlus className="mr-2"/> Ajouter
-                    </button>
-                </form>
-            </div>
-
-            <div className="bg-white shadow-md rounded-lg overflow-hidden">
-                 {loading ? <p className="p-4 text-center">Chargement...</p> : (
-                    <table className="min-w-full leading-normal">
-                        <thead>
-                            <tr>
-                                <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Nom de la Section</th>
-                                <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Filière</th>
-                                <th className="px-5 py-3 border-b-2 bg-gray-100 text-right text-xs font-semibold uppercase">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {sections.map((section) => (
-                                <tr key={section.id} className="hover:bg-gray-50">
-                                    {editingSection?.id === section.id ? (
-                                        <td colSpan={3} className="px-5 py-4 border-b">
-                                             <form onSubmit={handleUpdateSection} className="grid grid-cols-4 gap-3 items-center">
-                                                <input
-                                                    type="text"
-                                                    value={editingSection.nom}
-                                                    onChange={(e) => setEditingSection({ ...editingSection, nom: e.target.value })}
-                                                    className="w-full p-1 border rounded"
-                                                    autoFocus
-                                                />
-                                                 <select
-                                                    value={editingSection.filiere_id}
-                                                    onChange={(e) => setEditingSection({ ...editingSection, filiere_id: e.target.value })}
-                                                    className="w-full p-1 border rounded"
-                                                >
-                                                    {filieres.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
-                                                </select>
-                                                <div className="flex gap-2 justify-end">
-                                                    <button type="submit" className="px-3 py-1 rounded bg-green-500 text-white">Sauver</button>
-                                                    <button type="button" onClick={() => setEditingSection(null)} className="px-3 py-1 rounded bg-gray-200">Annuler</button>
-                                                </div>
-                                            </form>
-                                        </td>
-                                    ) : (
-                                        <>
-                                            <td className="px-5 py-4 border-b text-sm"><p className="font-semibold">{section.nom}</p></td>
-                                            <td className="px-5 py-4 border-b text-sm">{section.filieres?.nom || 'N/A'}</td>
-                                            <td className="px-5 py-4 border-b text-sm text-right">
-                                                <div className="inline-flex space-x-3">
-                                                    <button onClick={() => setEditingSection(section)} className="text-yellow-600 hover:text-yellow-800"><FaPencilAlt /></button>
-                                                    <button onClick={() => handleDeleteSection(section.id)} className="text-red-600 hover:text-red-800"><FaTrash /></button>
-                                                </div>
-                                            </td>
-                                        </>
-                                    )}
+                <div className="bg-white shadow-md rounded-lg overflow-hidden">
+                     {loading ? <p className="p-4 text-center">Chargement...</p> : (
+                        <table className="min-w-full leading-normal">
+                            <thead>
+                                <tr>
+                                    <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Nom de la Section</th>
+                                    <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Filière</th>
+                                    <th className="px-5 py-3 border-b-2 bg-gray-100 text-right text-xs font-semibold uppercase">Actions</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                )}
+                            </thead>
+                            <tbody>
+                                {sections.map((section) => (
+                                    <tr key={section.id} className="hover:bg-gray-50">
+                                        {editingSection?.id === section.id ? (
+                                            <td colSpan={3} className="px-5 py-4 border-b">
+                                                 <form onSubmit={handleUpdateSection} className="grid grid-cols-4 gap-3 items-center">
+                                                    <input
+                                                        type="text"
+                                                        value={editingSection.nom}
+                                                        onChange={(e) => setEditingSection({ ...editingSection, nom: e.target.value })}
+                                                        className="w-full p-1 border rounded"
+                                                        autoFocus
+                                                    />
+                                                     <select
+                                                        value={editingSection.filiere_id}
+                                                        onChange={(e) => setEditingSection({ ...editingSection, filiere_id: e.target.value })}
+                                                        className="w-full p-1 border rounded"
+                                                    >
+                                                        {filieres.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
+                                                    </select>
+                                                    <div className="flex gap-2 justify-end">
+                                                        <button type="submit" className="px-3 py-1 rounded bg-green-500 text-white">Sauver</button>
+                                                        <button type="button" onClick={() => setEditingSection(null)} className="px-3 py-1 rounded bg-gray-200">Annuler</button>
+                                                    </div>
+                                                </form>
+                                            </td>
+                                        ) : (
+                                            <>
+                                                <td className="px-5 py-4 border-b text-sm"><p className="font-semibold">{section.nom}</p></td>
+                                                <td className="px-5 py-4 border-b text-sm">{section.filieres?.nom || 'N/A'}</td>
+                                                <td className="px-5 py-4 border-b text-sm text-right">
+                                                    <div className="inline-flex space-x-3">
+                                                        <button onClick={() => setEditingSection(section)} className="text-yellow-600 hover:text-yellow-800"><FaPencilAlt /></button>
+                                                        <button onClick={() => handleDeleteSection(section.id)} className="text-red-600 hover:text-red-800"><FaTrash /></button>
+                                                    </div>
+                                                </td>
+                                            </>
+                                        )}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
             </div>
         </div>
     )

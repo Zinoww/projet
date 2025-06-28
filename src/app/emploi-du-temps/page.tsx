@@ -40,12 +40,12 @@ export default function EmploiDuTempsPage() {
     const [currentNiveau, setCurrentNiveau] = useState<string>('')
 
     // Fonction utilitaire pour déterminer le niveau principal
-    const getMainNiveau = (groupes): string => {
+    const getMainNiveau = (groupes: any[]): string => {
         if (!groupes || groupes.length === 0) return 'Non spécifié';
         
         // Comptez les occurrences de chaque niveau
         const niveauCounts: Record<string, number> = {};
-        groupes.forEach(g => {
+        groupes.forEach((g: any) => {
             if (g.niveau) {
                 niveauCounts[g.niveau] = (niveauCounts[g.niveau] || 0) + 1;
             }
@@ -293,6 +293,26 @@ export default function EmploiDuTempsPage() {
                      <div className="text-center py-10 text-gray-500">Chargement de l'emploi du temps...</div>
                 ) : events.length > 0 ? (
                     <div className="overflow-x-auto rounded-2xl shadow-lg border border-indigo-100 bg-white">
+                        {/* Légende des types de cours */}
+                        <div className="p-4 bg-gray-50 border-b border-indigo-100">
+                            <h3 className="text-sm font-semibold text-gray-700 mb-3">Légende des types de cours :</h3>
+                            <div className="flex flex-wrap gap-3">
+                                {[
+                                    { type: 'CM', label: 'Cours Magistral' },
+                                    { type: 'TD', label: 'Travaux Dirigés' },
+                                    { type: 'TP', label: 'Travaux Pratiques' }
+                                ].map(({ type, label }) => (
+                                    <div key={type} className="flex items-center gap-2">
+                                        <span className={`inline-block w-3 h-3 rounded-full ${
+                                            type === 'CM' ? 'bg-blue-500' :
+                                            type === 'TD' ? 'bg-green-500' :
+                                            type === 'TP' ? 'bg-purple-500' : 'bg-gray-500'
+                                        }`}></span>
+                                        <span className="text-xs text-gray-600 font-medium">{label}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
                         <TimetableGrid
                             events={events}
                             currentDate={weekStart.toDate()}

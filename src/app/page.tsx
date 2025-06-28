@@ -70,9 +70,9 @@ export default function HomePage() {
     { href: '/sections', icon: <FaLayerGroup />, title: 'Gestion des Sections', description: 'Gérez les sections au sein de chaque filière.' },
     { href: '/groupes', icon: <FaUsers />, title: 'Gestion des Groupes', description: 'Définissez les groupes d\'étudiants pour les cours.' },
     { href: '/enseignants', icon: <FaChalkboardTeacher />, title: 'Gestion des Enseignants', description: 'Ajoutez et mettez à jour les profils des enseignants.' },
+    { href: '/salles', icon: <FaDoorOpen />, title: 'Gestion des Salles', description: 'Gérez les salles de cours et leurs capacités.' },
     { href: '/cours', icon: <FaBook />, title: 'Gestion des Cours', description: 'Administrez le catalogue des matières et cours.' },
     { href: '/seances', icon: <FaClipboardList />, title: 'Gestion des Séances', description: 'Définissez les séances de cours (CM, TD, TP) pour chaque module.' },
-    { href: '/salles', icon: <FaDoorOpen />, title: 'Gestion des Salles', description: 'Gérez les salles de cours et leurs capacités.' },
   ];
 
   const toolLinks = [
@@ -80,7 +80,7 @@ export default function HomePage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-indigo-100">
       <main className="container mx-auto px-6 py-10">
         <header className="text-center mb-12">
           <h1 className="text-4xl md:text-5xl font-extrabold text-gray-800">

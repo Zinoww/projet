@@ -134,96 +134,96 @@ export default function FilieresPage() {
     }
 
     return (
-        <div className="container mx-auto px-4 sm:px-8 py-8">
-            <div className="flex justify-between items-center mb-8">
-                <div className="flex items-center">
-                    <FaUniversity className="text-3xl text-indigo-500 mr-4" />
-                    <h1 className="text-4xl font-bold text-gray-800">Gestion des Filières</h1>
+        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-indigo-100">
+            <div className="container mx-auto px-4 sm:px-8 py-8">
+                <div className="flex justify-between items-center mb-8">
+                    <div className="flex items-center">
+                        <FaUniversity className="text-3xl text-indigo-500 mr-4" />
+                        <h1 className="text-4xl font-bold text-gray-800">Gestion des Filières</h1>
+                    </div>
+                    <div className="flex items-center gap-4">
+                        <input
+                            type="file"
+                            accept=".xlsx, .xls"
+                            onChange={handleImportExcel}
+                            className="hidden"
+                            id="excel-upload"
+                        />
+                        <label
+                            htmlFor="excel-upload"
+                            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer"
+                        >
+                            <FaFileExcel />
+                            Importer
+                        </label>
+                        <Link href="/" className="flex items-center text-indigo-600 hover:text-indigo-800">
+                            <FaArrowLeft className="mr-2"/>
+                            Retour à l'accueil
+                        </Link>
+                    </div>
                 </div>
-                <div className="flex items-center gap-4">
-                    <input
-                        type="file"
-                        accept=".xlsx, .xls"
-                        onChange={handleImportExcel}
-                        className="hidden"
-                        id="excel-upload"
-                    />
-                    <label
-                        htmlFor="excel-upload"
-                        className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer"
-                    >
-                        <FaFileExcel />
-                        Importer
-                    </label>
-                    <Link href="/" className="flex items-center text-indigo-600 hover:text-indigo-800">
-                        <FaArrowLeft className="mr-2"/>
-                        Retour à l'accueil
-                    </Link>
+
+                {error && <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6" role="alert"><p>{error}</p></div>}
+                {success && <div className="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-6" role="alert"><p>{success}</p></div>}
+
+                <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+                    <h2 className="text-2xl font-semibold text-gray-700 mb-4">Ajouter une filière</h2>
+                    <form onSubmit={handleAddFiliere} className="flex items-center gap-4">
+                        <input
+                            type="text"
+                            value={newFiliere.nom}
+                            onChange={(e) => setNewFiliere({ nom: e.target.value })}
+                            placeholder="Nom de la nouvelle filière"
+                            className="w-full p-2 border rounded-lg"
+                            required
+                        />
+                        <button type="submit" className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center">
+                            <FaPlus className="mr-2"/> Ajouter
+                        </button>
+                    </form>
                 </div>
-            </div>
 
-            {error && <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6" role="alert"><p>{error}</p></div>}
-            {success && <div className="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-6" role="alert"><p>{success}</p></div>}
-
-            <div className="bg-white p-6 rounded-lg shadow-md mb-8">
-                <h2 className="text-2xl font-semibold text-gray-700 mb-4">Ajouter une filière</h2>
-                <form onSubmit={handleAddFiliere} className="flex items-center gap-4">
-                    <input
-                        type="text"
-                        value={newFiliere.nom}
-                        onChange={(e) => setNewFiliere({ nom: e.target.value })}
-                        placeholder="Nom de la nouvelle filière"
-                        className="w-full p-2 border rounded-lg"
-                        required
-                    />
-                    <button type="submit" className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center">
-                        <FaPlus className="mr-2"/> Ajouter
-                    </button>
-                </form>
-            </div>
-
-            <div className="bg-white shadow-md rounded-lg overflow-hidden">
-                {loading ? <p className="p-4 text-center">Chargement...</p> : (
-                    <table className="min-w-full leading-normal">
-                        <thead>
-                            <tr>
-                                <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Nom de la Filière</th>
-                                <th className="px-5 py-3 border-b-2 bg-gray-100 text-right text-xs font-semibold uppercase">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {filieres.map((filiere) => (
-                                <tr key={filiere.id} className="hover:bg-gray-50">
-                                    <td className="px-5 py-4 border-b text-sm">
-                                        {editingFiliere?.id === filiere.id ? (
-                                            <form onSubmit={handleUpdateFiliere} className="flex gap-2">
-                                                <input
-                                                    type="text"
-                                                    value={editingFiliere.nom}
-                                                    onChange={(e) => setEditingFiliere({ ...editingFiliere, nom: e.target.value })}
-                                                    className="w-full p-1 border rounded"
-                                                    autoFocus
-                                                />
-                                                <button type="submit" className="px-3 py-1 rounded bg-green-500 text-white">Sauver</button>
-                                                <button type="button" onClick={() => setEditingFiliere(null)} className="px-3 py-1 rounded bg-gray-200">Annuler</button>
-                                            </form>
-                                        ) : (
-                                            <p className="font-semibold">{filiere.nom}</p>
-                                        )}
-                                    </td>
-                                    <td className="px-5 py-4 border-b text-sm text-right">
-                                        {editingFiliere?.id !== filiere.id && (
+                <div className="bg-white shadow-md rounded-lg overflow-hidden">
+                    {loading ? <p className="p-4 text-center">Chargement...</p> : (
+                        <table className="min-w-full leading-normal">
+                            <thead>
+                                <tr>
+                                    <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Nom de la Filière</th>
+                                    <th className="px-5 py-3 border-b-2 bg-gray-100 text-right text-xs font-semibold uppercase">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filieres.map((filiere) => (
+                                    <tr key={filiere.id} className="hover:bg-gray-50">
+                                        <td className="px-5 py-4 border-b text-sm">
+                                            {editingFiliere?.id === filiere.id ? (
+                                                <form onSubmit={handleUpdateFiliere} className="flex gap-2">
+                                                    <input
+                                                        type="text"
+                                                        value={editingFiliere.nom}
+                                                        onChange={(e) => setEditingFiliere({ ...editingFiliere, nom: e.target.value })}
+                                                        className="flex-1 p-1 border rounded"
+                                                        required
+                                                    />
+                                                    <button type="submit" className="px-3 py-1 bg-green-500 text-white rounded">Sauver</button>
+                                                    <button type="button" onClick={() => setEditingFiliere(null)} className="px-3 py-1 bg-gray-200 rounded">Annuler</button>
+                                                </form>
+                                            ) : (
+                                                <p className="font-semibold">{filiere.nom}</p>
+                                            )}
+                                        </td>
+                                        <td className="px-5 py-4 border-b text-sm text-right">
                                             <div className="inline-flex space-x-3">
                                                 <button onClick={() => setEditingFiliere(filiere)} className="text-yellow-600 hover:text-yellow-800"><FaPencilAlt /></button>
                                                 <button onClick={() => handleDeleteFiliere(filiere.id)} className="text-red-600 hover:text-red-800"><FaTrash /></button>
                                             </div>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                )}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
             </div>
         </div>
     )

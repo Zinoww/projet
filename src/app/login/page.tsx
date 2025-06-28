@@ -25,35 +25,37 @@ export default function LoginPage() {
     }
 
     return (
-        <div className="flex flex-col items-center justify-center min-h-screen">
-            <form onSubmit={handleLogin} className="bg-white p-8 rounded shadow-md w-full max-w-md">
-                <h1 className="text-2xl font-bold mb-6 text-center">Connexion</h1>
+        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-indigo-100 flex flex-col items-center justify-center p-4 sm:p-6 lg:p-8">
+            <div className="max-w-md w-full">
+                <form onSubmit={handleLogin} className="bg-white p-8 rounded-2xl shadow-xl border border-indigo-100">
+                    <h1 className="text-2xl font-bold mb-6 text-center text-gray-800">Connexion</h1>
 
-                {error && <p className="text-red-500 mb-4">{error}</p>}
+                    {error && <p className="text-red-500 mb-4 bg-red-50 p-3 rounded-lg border border-red-200">{error}</p>}
 
-                <input
-                    type="email"
-                    placeholder="Email"
-                    value={email}
-                    required
-                    onChange={e => setEmail(e.target.value)}
-                    className="w-full mb-4 p-2 border rounded"
-                />
-                <input
-                    type="password"
-                    placeholder="Mot de passe"
-                    value={password}
-                    required
-                    onChange={e => setPassword(e.target.value)}
-                    className="w-full mb-4 p-2 border rounded"
-                />
-                <button
-                    type="submit"
-                    className="bg-blue-600 text-white w-full py-2 rounded hover:bg-blue-700"
-                >
-                    Se connecter
-                </button>
-            </form>
+                    <input
+                        type="email"
+                        placeholder="Email"
+                        value={email}
+                        required
+                        onChange={e => setEmail(e.target.value)}
+                        className="w-full mb-4 p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                    <input
+                        type="password"
+                        placeholder="Mot de passe"
+                        value={password}
+                        required
+                        onChange={e => setPassword(e.target.value)}
+                        className="w-full mb-4 p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                    <button
+                        type="submit"
+                        className="bg-indigo-600 text-white w-full py-3 rounded-lg hover:bg-indigo-700 transition-colors font-semibold"
+                    >
+                        Se connecter
+                    </button>
+                </form>
+            </div>
         </div>
     )
 }
