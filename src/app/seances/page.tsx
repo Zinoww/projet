@@ -7,7 +7,7 @@ import Link from 'next/link'
 import * as XLSX from 'xlsx'
 
 // Interfaces pour les données externes
-interface Cour { id: string; nom: string; }
+interface Cour { id: string; nom: string; niveau: string | null; }
 interface TypeSeance { id: string; nom: string; }
 interface Groupe { id: string; nom: string; niveau: string | null; }
 interface Enseignant { id: string; nom: string; }
@@ -96,8 +96,8 @@ export default function SeancesPage() {
         else setSeances(data as any)
     }
     const fetchCours = async () => {
-        const { data, error } = await supabase.from('cours').select('id, nom').order('nom')
-        if (!error) setCours(data)
+        const { data, error } = await supabase.from('cours').select('id, nom, niveau').order('nom')
+        if (!error) setCours(data as Cour[])
     }
     const fetchTypesSeances = async () => {
         const { data, error } = await supabase.from('types_seances').select('id, nom').order('nom')
@@ -213,15 +213,16 @@ export default function SeancesPage() {
     
     const startEditing = (seance: Seance) => {
         setEditingSeance(seance)
-        const groupe = groupes.find(g => g.id === seance.groupe_id);
-        setEditingSelectedNiveau(groupe?.niveau || '');
         setEditingSeanceForm({
             cours_id: seance.cours_id,
             type_id: seance.type_id,
             groupe_id: seance.groupe_id,
             enseignant_id: seance.enseignant_id || '',
-            duree_minutes: String(seance.duree_minutes || 90)
+            duree_minutes: seance.duree_minutes?.toString() || '90'
         })
+        // Initialiser le niveau basé sur le cours
+        const coursActuel = cours.find(c => c.id === seance.cours_id)
+        setEditingSelectedNiveau(coursActuel?.niveau || '')
     }
 
     const handleUpdateSeance = async (e: FormEvent) => {
@@ -304,17 +305,51 @@ export default function SeancesPage() {
                     
                     <form onSubmit={handleUpdateSeance} className="space-y-4">
                         <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Niveau</label>
+                            <select value={editingSelectedNiveau} onChange={e => { setEditingSelectedNiveau(e.target.value); setEditingSeanceForm(editingSeanceForm ? { ...editingSeanceForm, cours_id: '', groupe_id: '' } : null) }} className="w-full p-2 border rounded">
+                                <option value="">Sélectionner un niveau</option>
+                                {editingSelectedNiveau && (
+                                    <option value={editingSelectedNiveau} className="font-semibold bg-gray-100">
+                                        {editingSelectedNiveau} (actuel)
+                                    </option>
+                                )}
+                                {[...new Set(cours.map(c => c.niveau).filter(Boolean))].filter(niv => niv !== editingSelectedNiveau).map(niv => (
+                                    <option key={niv as string} value={niv as string}>
+                                        {niv}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        
+                        <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Cours</label>
-                            <select value={editingSeanceForm.cours_id} onChange={e => setEditingSeanceForm({...editingSeanceForm, cours_id: e.target.value})} className="w-full p-2 border rounded">
+                            <select value={editingSeanceForm.cours_id} onChange={e => setEditingSeanceForm(editingSeanceForm ? { ...editingSeanceForm, cours_id: e.target.value } : null)} className="w-full p-2 border rounded" disabled={!editingSelectedNiveau}>
                                 <option value="">Sélectionner un cours</option>
                                 {editingSeance.cours && (
                                     <option value={editingSeance.cours_id} className="font-semibold bg-gray-100">
                                         {editingSeance.cours.nom} (actuel)
                                     </option>
                                 )}
-                                {cours.filter(c => c.id !== editingSeance.cours_id).map(c => (
+                                {cours.filter(c => c.niveau === editingSelectedNiveau && c.id !== editingSeance.cours_id).map(c => (
                                     <option key={c.id} value={c.id}>
                                         {c.nom}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Groupe</label>
+                            <select value={editingSeanceForm.groupe_id} onChange={e => setEditingSeanceForm(editingSeanceForm ? { ...editingSeanceForm, groupe_id: e.target.value } : null)} className="w-full p-2 border rounded">
+                                <option value="">Sélectionner un groupe</option>
+                                {editingSeance.groupes && (
+                                    <option value={editingSeance.groupe_id} className="font-semibold bg-gray-100">
+                                        {editingSeance.groupes.nom} (actuel)
+                                    </option>
+                                )}
+                                {groupes.filter(g => g.id !== editingSeance.groupe_id).map(g => (
+                                    <option key={g.id} value={g.id}>
+                                        {g.nom}
                                     </option>
                                 ))}
                             </select>
@@ -332,40 +367,6 @@ export default function SeancesPage() {
                                 {types.filter(t => t.id !== editingSeance.type_id).map(t => (
                                     <option key={t.id} value={t.id}>
                                         {t.nom}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                        
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Niveau</label>
-                            <select value={editingSelectedNiveau} onChange={e => { setEditingSelectedNiveau(e.target.value); setEditingSeanceForm(editingSeanceForm ? { ...editingSeanceForm, groupe_id: '' } : null) }} className="w-full p-2 border rounded">
-                                <option value="">Sélectionner un niveau</option>
-                                {editingSelectedNiveau && (
-                                    <option value={editingSelectedNiveau} className="font-semibold bg-gray-100">
-                                        {editingSelectedNiveau} (actuel)
-                                    </option>
-                                )}
-                                {[...new Set(groupes.map(g => g.niveau).filter(Boolean))].filter(niv => niv !== editingSelectedNiveau).map(niv => (
-                                    <option key={niv as string} value={niv as string}>
-                                        {niv}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                        
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Groupe</label>
-                            <select value={editingSeanceForm.groupe_id} onChange={e => setEditingSeanceForm(editingSeanceForm ? { ...editingSeanceForm, groupe_id: e.target.value } : null)} className="w-full p-2 border rounded" disabled={!editingSelectedNiveau}>
-                                <option value="">Sélectionner un groupe</option>
-                                {editingSeance.groupes && (
-                                    <option value={editingSeance.groupe_id} className="font-semibold bg-gray-100">
-                                        {editingSeance.groupes.nom} (actuel)
-                                    </option>
-                                )}
-                                {groupes.filter(g => g.niveau === editingSelectedNiveau && g.id !== editingSeance.groupe_id).map(g => (
-                                    <option key={g.id} value={g.id}>
-                                        {g.nom}
                                     </option>
                                 ))}
                             </select>
@@ -445,22 +446,23 @@ export default function SeancesPage() {
                     <h2 className="text-2xl font-semibold text-gray-700 mb-4">Ajouter une séance</h2>
                     <form onSubmit={handleAddSeance} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {/* Sélection du niveau */}
-                        <select value={selectedNiveau} onChange={e => { setSelectedNiveau(e.target.value); setNewSeance({ ...newSeance, groupe_id: '' }) }} className="w-full p-2 border rounded bg-gray-50">
+                        <select value={selectedNiveau} onChange={e => { setSelectedNiveau(e.target.value); setNewSeance({ ...newSeance, cours_id: '', groupe_id: '' }) }} className="w-full p-2 border rounded bg-gray-50">
                             <option value="">Sélectionner un niveau</option>
-                            {[...new Set(groupes.map(g => g.niveau).filter(Boolean))].map(niv => (
+                            {[...new Set(cours.map(c => c.niveau).filter(Boolean))].map(niv => (
                                 <option key={niv as string} value={niv as string}>{niv}</option>
                             ))}
                         </select>
-                        {/* Liste des groupes filtrée par niveau */}
-                        <select required value={newSeance.groupe_id} onChange={e => setNewSeance({...newSeance, groupe_id: e.target.value})} className="w-full p-2 border rounded bg-gray-50" disabled={!selectedNiveau}>
+                        {/* Liste des cours filtrée par niveau */}
+                        <select required value={newSeance.cours_id} onChange={e => setNewSeance({...newSeance, cours_id: e.target.value})} className="w-full p-2 border rounded bg-gray-50" disabled={!selectedNiveau}>
+                            <option value="">Sélectionner un cours</option>
+                            {cours.filter(c => c.niveau === selectedNiveau).map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
+                        </select>
+                        {/* Liste des groupes */}
+                        <select required value={newSeance.groupe_id} onChange={e => setNewSeance({...newSeance, groupe_id: e.target.value})} className="w-full p-2 border rounded bg-gray-50">
                             <option value="">Sélectionner un groupe</option>
-                            {groupes.filter(g => g.niveau === selectedNiveau).map(g => <option key={g.id} value={g.id}>{g.nom}</option>)}
+                            {groupes.map(g => <option key={g.id} value={g.id}>{g.nom}</option>)}
                         </select>
                         {/* Les autres champs (cours, type, enseignant, durée) */}
-                        <select required value={newSeance.cours_id} onChange={e => setNewSeance({...newSeance, cours_id: e.target.value})} className="w-full p-2 border rounded bg-gray-50">
-                            <option value="">Sélectionner un cours</option>
-                            {cours.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
-                        </select>
                         <select required value={newSeance.type_id} onChange={e => setNewSeance({...newSeance, type_id: e.target.value})} className="w-full p-2 border rounded bg-gray-50">
                             <option value="">Sélectionner un type</option>
                             {types.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}

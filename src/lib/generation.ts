@@ -83,42 +83,68 @@ export async function diagnostiquerDonneesSimple(sectionId: string): Promise<str
         
         rapport += `📊 Groupes dans cette section: ${nbGroupes || 0}\n\n`;
         
-        // 3. Compter les séances totales
+        // 3. Compter les séances totales pour cette section
+        const { data: groupes, error: groupesDataError } = await supabase
+            .from('groupes')
+            .select('id')
+            .eq('section_id', sectionId);
+        
+        if (groupesDataError || !groupes) {
+            rapport += `❌ Erreur récupération groupes: ${groupesDataError?.message}\n`;
+            return rapport;
+        }
+
+        const groupeIds = groupes.map(g => g.id);
         const { count: nbSeances, error: seancesError } = await supabase
             .from('seances')
-            .select('*', { count: 'exact', head: true });
+            .select('*', { count: 'exact', head: true })
+            .in('groupe_id', groupeIds);
         
         if (seancesError) {
             rapport += `❌ Erreur séances: ${seancesError.message}\n`;
             return rapport;
         }
         
-        rapport += `📊 Total des séances: ${nbSeances || 0}\n\n`;
+        rapport += `📊 Total des séances pour cette section: ${nbSeances || 0}\n\n`;
         
-        // 4. Test simple de la requête avec relations
-        const { data: testSeances, error: testError } = await supabase
-            .from('seances')
-            .select('id, groupe_id, groupes!inner(id)')
-            .eq('groupes.section_id', sectionId)
-            .limit(5);
-        
-        if (testError) {
-            rapport += `❌ Erreur requête relations: ${testError.message}\n`;
-            rapport += `💡 Le problème vient probablement de la relation groupes\n`;
-        } else {
-            rapport += `✅ Requête relations OK\n`;
-            rapport += `📊 Séances trouvées avec relations: ${testSeances?.length || 0}\n`;
+        // 4. Analyser les types de séances
+        if (nbSeances && nbSeances > 0) {
+            const { data: seancesDetails, error: detailsError } = await supabase
+                .from('seances')
+                .select('id, duree_minutes, cours_id, type_id, groupe_id, cours(nom), types_seances(nom), enseignants(nom)')
+                .in('groupe_id', groupeIds)
+                .limit(10);
+            
+            if (detailsError) {
+                rapport += `❌ Erreur détails séances: ${detailsError.message}\n`;
+            } else {
+                rapport += `📋 Analyse des séances:\n`;
+                
+                // Compter par type
+                const typesCount: { [key: string]: number } = {};
+                seancesDetails?.forEach((seance: any) => {
+                    const type = (seance.types_seances?.nom || 'Inconnu');
+                    typesCount[type] = (typesCount[type] || 0) + 1;
+                });
+                
+                Object.entries(typesCount).forEach(([type, count]) => {
+                    rapport += `  • ${type}: ${count} séance(s)\n`;
+                });
+                
+                rapport += '\n';
+            }
         }
         
-        rapport += '\n=== RECOMMANDATIONS ===\n';
-        if (nbGroupes === 0) {
+        rapport += '=== RECOMMANDATIONS ===\n';
+        if (!nbGroupes || nbGroupes === 0) {
             rapport += '1. Créez des groupes pour cette section\n';
         }
-        if (nbSeances === 0) {
-            rapport += '2. Créez des séances\n';
+        if (!nbSeances || nbSeances === 0) {
+            rapport += '2. Créez des séances pour les groupes de cette section\n';
         }
-        if (testError) {
-            rapport += '3. Vérifiez que les séances ont des groupe_id valides\n';
+        if (nbGroupes && nbGroupes > 0 && nbSeances && nbSeances > 0) {
+            rapport += '3. Vérifiez que les séances ont des types appropriés (CM, TD, TP)\n';
+            rapport += '4. Assurez-vous d\'avoir des salles avec des capacités appropriées\n';
         }
         
     } catch (error) {
@@ -132,26 +158,18 @@ export async function diagnostiquerDonneesSimple(sectionId: string): Promise<str
 
 export async function genererEmploiDuTemps(
     sectionId: string, 
-    setMessage: (msg: string) => void
+    setMessage: (msg: string) => void,
+    niveau?: string
 ): Promise<boolean> {
     // --- Étape 1: Récupération des données ---
-    setMessage('1/5 - Récupération des données...');
+    setMessage('1/6 - Récupération des données...');
 
-    // a. Récupérer toutes les séances
-    const { data: seances, error: seancesError } = await supabase
-        .from('seances')
-        .select('*');
-
-    if (seancesError || !seances || seances.length === 0) {
-        setMessage(`Erreur ou aucune séance à planifier pour cette section. ${seancesError?.message || ''}`);
-        return false;
-    }
-
-    // b. Récupérer tous les groupes de la section
+    // a. Récupérer tous les groupes de la section
     const { data: groupes, error: groupesError } = await supabase
         .from('groupes')
-        .select('id, nom, section_id')
-        .eq('section_id', sectionId);
+        .select('id, nom, niveau, specialite, section_id')
+        .eq('section_id', sectionId)
+        .order('nom');
 
     if (groupesError || !groupes || groupes.length === 0) {
         setMessage('Aucun groupe trouvé pour cette section.');
@@ -160,11 +178,25 @@ export async function genererEmploiDuTemps(
 
     const groupeIds = groupes.map(g => g.id);
 
-    // Filtrer les séances qui appartiennent à ces groupes
-    const seancesValides = seances.filter(s => groupeIds.includes(s.groupe_id));
+    // b. Récupérer toutes les séances de ces groupes
+    let seancesQuery = supabase
+        .from('seances')
+        .select('*, cours(nom, niveau), types_seances(nom), enseignants(nom)')
+        .in('groupe_id', groupeIds);
 
-    if (seancesValides.length === 0) {
-        setMessage('Aucune séance valide trouvée pour cette section. Vérifiez que les séances ont des groupes associés.');
+    // Si un niveau est spécifié, filtrer par le niveau des cours
+    if (niveau) {
+        seancesQuery = seancesQuery.eq('cours.niveau', niveau);
+        setMessage(`1/6 - Récupération des données pour le niveau ${niveau}...`);
+    }
+
+    const { data: seances, error: seancesError } = await seancesQuery;
+
+    if (seancesError || !seances || seances.length === 0) {
+        const message = niveau ? 
+            `Erreur ou aucune séance à planifier pour cette section au niveau ${niveau}. ${seancesError?.message || ''}` :
+            `Erreur ou aucune séance à planifier pour cette section. ${seancesError?.message || ''}`;
+        setMessage(message);
         return false;
     }
 
@@ -175,8 +207,18 @@ export async function genererEmploiDuTemps(
         return false;
     }
 
-    // --- Étape 2: Initialisation ---
-    setMessage('2/5 - Initialisation du planning...');
+    // --- Étape 2: Organisation des séances par type ---
+    setMessage('2/6 - Organisation des séances par type...');
+
+    // Séparer les séances par type
+    const seancesCM = seances.filter(s => (s.types_seances as any)?.nom?.toLowerCase().includes('cm'));
+    const seancesTD = seances.filter(s => (s.types_seances as any)?.nom?.toLowerCase().includes('td'));
+    const seancesTP = seances.filter(s => (s.types_seances as any)?.nom?.toLowerCase().includes('tp'));
+
+    console.log(`Séances trouvées: ${seancesCM.length} CM, ${seancesTD.length} TD, ${seancesTP.length} TP`);
+
+    // --- Étape 3: Initialisation du planning ---
+    setMessage('3/6 - Initialisation du planning...');
     const jours = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi'];
     const creneaux: Creneau[] = [
         { debut: '08:00:00', fin: '09:30:00' },
@@ -187,113 +229,167 @@ export async function genererEmploiDuTemps(
     ];
 
     const planning: EmploiDuTempsItem[] = [];
-    const seancesAPlacer = shuffle(seancesValides as Seance[]);
+    const planningGroupes: { [key: string]: { [key: string]: string[] } } = {}; // jour -> créneau -> groupes
 
-    // --- Fonction de validation ---
-    const estValide = (seance: Seance, jour: string, creneau: Creneau, salle: Salle): boolean => {
-        // Contrainte 1: Le groupe de la séance est-il déjà occupé ?
-        const groupeOccupe = planning.some(p => {
-            const seancePlanifiee = seancesAPlacer.find(s => s.id === p.seance_id);
-            return seancePlanifiee?.groupe_id === seance.groupe_id && p.jour === jour && p.heure_debut === creneau.debut;
+    // Initialiser la structure de suivi des groupes
+    jours.forEach(jour => {
+        planningGroupes[jour] = {};
+        creneaux.forEach(creneau => {
+            planningGroupes[jour][creneau.debut] = [];
         });
-        if (groupeOccupe) return false;
+    });
 
-        // Contrainte 2: L'enseignant est-il déjà occupé ?
-        if (seance.enseignant_id) {
-            const enseignantOccupe = planning.some(p => {
-                const seancePlanifiee = seancesAPlacer.find(s => s.id === p.seance_id);
-                return seancePlanifiee?.enseignant_id === seance.enseignant_id && p.jour === jour && p.heure_debut === creneau.debut;
-            });
-            if (enseignantOccupe) return false;
-        }
+    // --- Étape 4: Placement des CM (tous les groupes ensemble) ---
+    setMessage('4/6 - Placement des cours magistraux...');
 
-        // Contrainte 3: La salle est-elle déjà occupée ?
-        const salleOccupee = planning.some(p => p.salle_id === salle.id && p.jour === jour && p.heure_debut === creneau.debut);
-        if (salleOccupee) return false;
+    for (const seanceCM of seancesCM) {
+        let placee = false;
         
-        // TODO: Ajouter la vérification des disponibilités JSON de l'enseignant
-        // TODO: Ajouter la vérification de la capacité de la salle
-
-        return true;
-    }
-
-    // --- Étape 3: Algorithme de Backtracking ---
-    setMessage('3/5 - Recherche d\'une solution...');
-    const solve = (seanceIndex: number): boolean => {
-        if (seanceIndex >= seancesAPlacer.length) {
-            return true; // Toutes les séances sont placées
-        }
-
-        const seanceActuelle = seancesAPlacer[seanceIndex];
-
         for (const jour of shuffle(jours)) {
             for (const creneau of shuffle(creneaux)) {
-                for (const salle of shuffle(salles)) {
-                    if (estValide(seanceActuelle, jour, creneau, salle)) {
-                        planning.push({
-                            seance_id: seanceActuelle.id,
-                            jour: jour,
-                            heure_debut: creneau.debut,
-                            heure_fin: creneau.fin,
-                            salle_id: salle.id
-                        });
+                // Vérifier si aucun groupe n'est occupé à ce créneau
+                const groupesOccupe = planningGroupes[jour][creneau.debut].length > 0;
+                if (groupesOccupe) continue;
 
-                        if (solve(seanceIndex + 1)) {
-                            return true; // Solution trouvée
-                        }
-
-                        planning.pop(); // Backtrack
-                    }
+                // Vérifier si l'enseignant est disponible
+                if (seanceCM.enseignant_id) {
+                    const enseignantOccupe = planning.some(p => {
+                        const seancePlanifiee = seances.find(s => s.id === p.seance_id);
+                        return seancePlanifiee?.enseignant_id === seanceCM.enseignant_id && 
+                               p.jour === jour && p.heure_debut === creneau.debut;
+                    });
+                    if (enseignantOccupe) continue;
                 }
+
+                // Trouver une salle appropriée (plus grande capacité pour CM)
+                const salleCM = salles.find(s => s.capacite && s.capacite >= groupes.length * 30); // Estimation 30 étudiants par groupe
+                if (!salleCM) continue;
+
+                // Vérifier si la salle est libre
+                const salleOccupee = planning.some(p => 
+                    p.salle_id === salleCM.id && p.jour === jour && p.heure_debut === creneau.debut
+                );
+                if (salleOccupee) continue;
+
+                // Placer le CM
+                planning.push({
+                    seance_id: seanceCM.id,
+                    jour: jour,
+                    heure_debut: creneau.debut,
+                    heure_fin: creneau.fin,
+                    salle_id: salleCM.id
+                });
+
+                // Marquer tous les groupes comme occupés
+                groupes.forEach(groupe => {
+                    if (!planningGroupes[jour][creneau.debut].includes(groupe.id)) {
+                        planningGroupes[jour][creneau.debut].push(groupe.id);
+                    }
+                });
+
+                placee = true;
+                break;
             }
+            if (placee) break;
         }
 
-        return false; // Aucune solution trouvée pour cette branche
-    }
-
-    const success = solve(0);
-
-    if (!success) {
-        setMessage('Échec : Impossible de générer un emploi du temps avec les contraintes actuelles.');
-        return false;
-    }
-
-    // --- Étape 4: Sauvegarde du résultat ---
-    setMessage('4/5 - Sauvegarde du nouvel emploi du temps...');
-    
-    // a. Récupérer les ID des anciennes séances pour ces groupes
-    const { data: oldSeances, error: oldSeancesError } = await supabase
-        .from('seances')
-        .select('id')
-        .in('groupe_id', groupeIds);
-
-    if (oldSeancesError) {
-        setMessage(`Erreur lors de la récupération des anciennes séances: ${oldSeancesError.message}`);
-        return false;
-    }
-
-    // b. Supprimer les anciennes entrées de l'emploi du temps
-    const oldSeanceIds = oldSeances.map(s => s.id);
-    if (oldSeanceIds.length > 0) {
-        const { error: deleteError } = await supabase
-            .from('emplois_du_temps')
-            .delete()
-            .in('seance_id', oldSeanceIds);
-
-        if (deleteError) {
-            setMessage(`Erreur lors du nettoyage de l'ancien planning: ${deleteError.message}`);
+        if (!placee) {
+            setMessage(`Impossible de placer le CM: ${(seanceCM.cours as any)?.nom}`);
             return false;
         }
     }
 
-    // c. Insérer le nouveau planning
+    // --- Étape 5: Placement des TD/TP (groupes séparés avec partage possible) ---
+    setMessage('5/6 - Placement des TD/TP...');
+
+    const seancesTDTP = [...seancesTD, ...seancesTP];
+    
+    for (const seance of seancesTDTP) {
+        let placee = false;
+        
+        for (const jour of shuffle(jours)) {
+            for (const creneau of shuffle(creneaux)) {
+                // Vérifier si le groupe de cette séance est déjà occupé
+                const groupeOccupe = planningGroupes[jour][creneau.debut].includes(seance.groupe_id);
+                if (groupeOccupe) continue;
+
+                // Vérifier si l'enseignant est disponible
+                if (seance.enseignant_id) {
+                    const enseignantOccupe = planning.some(p => {
+                        const seancePlanifiee = seances.find(s => s.id === p.seance_id);
+                        return seancePlanifiee?.enseignant_id === seance.enseignant_id && 
+                               p.jour === jour && p.heure_debut === creneau.debut;
+                    });
+                    if (enseignantOccupe) continue;
+                }
+
+                // Trouver une salle appropriée
+                const salle = salles.find(s => s.capacite && s.capacite >= 30); // Capacité pour un groupe
+                if (!salle) continue;
+
+                // Vérifier si la salle est libre ou peut être partagée
+                const seancesDansSalle = planning.filter(p => 
+                    p.salle_id === salle.id && p.jour === jour && p.heure_debut === creneau.debut
+                );
+
+                if (seancesDansSalle.length > 0) {
+                    // Vérifier si on peut partager la salle (même type de séance)
+                    const seanceExistante = seances.find(s => s.id === seancesDansSalle[0].seance_id);
+                    const memeType = (seance.types_seances as any)?.nom === (seanceExistante?.types_seances as any)?.nom;
+                    
+                    if (!memeType) continue; // Types différents, ne peut pas partager
+                    
+                    // Vérifier la capacité de la salle pour plusieurs groupes
+                    const groupesDansSalle = planningGroupes[jour][creneau.debut].length;
+                    if (salle.capacite && salle.capacite < (groupesDansSalle + 1) * 30) continue;
+                }
+
+                // Placer la séance
+                planning.push({
+                    seance_id: seance.id,
+                    jour: jour,
+                    heure_debut: creneau.debut,
+                    heure_fin: creneau.fin,
+                    salle_id: salle.id
+                });
+
+                // Marquer le groupe comme occupé
+                planningGroupes[jour][creneau.debut].push(seance.groupe_id);
+
+                placee = true;
+                break;
+            }
+            if (placee) break;
+        }
+
+        if (!placee) {
+            setMessage(`Impossible de placer la séance: ${(seance.cours as any)?.nom} - ${(seance.types_seances as any)?.nom}`);
+            return false;
+        }
+    }
+
+    // --- Étape 6: Sauvegarde du résultat ---
+    setMessage('6/6 - Sauvegarde du nouvel emploi du temps...');
+    
+    // a. Supprimer les anciennes entrées de l'emploi du temps pour cette section
+    const { error: deleteError } = await supabase
+        .from('emplois_du_temps')
+        .delete()
+        .in('seance_id', seances.map(s => s.id));
+
+    if (deleteError) {
+        setMessage(`Erreur lors du nettoyage de l'ancien planning: ${deleteError.message}`);
+        return false;
+    }
+
+    // b. Insérer le nouveau planning
     const { error: insertError } = await supabase.from('emplois_du_temps').insert(planning);
     if (insertError) {
         setMessage(`Erreur lors de la sauvegarde du nouveau planning: ${insertError.message}`);
         return false;
     }
 
-    setMessage('5/5 - Génération terminée avec succès !');
+    setMessage('Génération terminée avec succès !');
     return true;
 }
 
@@ -525,49 +621,31 @@ export async function getDonneesReference(): Promise<string> {
 }
 
 // Fonction de diagnostic détaillé pour les séances
-export async function diagnostiquerSeances(sectionId: string): Promise<string> {
+export async function diagnostiquerSeances(groupeId: string): Promise<string> {
     let rapport = '=== DIAGNOSTIC DÉTAILLÉ DES SÉANCES ===\n\n';
     
     try {
-        // 1. Récupérer la section
-        const { data: section, error: sectionError } = await supabase
-            .from('sections')
-            .select('*')
-            .eq('id', sectionId)
-            .single();
-        
-        if (sectionError || !section) {
-            rapport += `❌ Section non trouvée\n`;
-            return rapport;
-        }
-        
-        rapport += `📚 Section: ${section.nom}\n\n`;
-        
-        // 2. Récupérer tous les groupes de cette section
-        const { data: groupes, error: groupesError } = await supabase
+        // 1. Récupérer le groupe
+        const { data: groupe, error: groupeError } = await supabase
             .from('groupes')
             .select('*')
-            .eq('section_id', sectionId);
+            .eq('id', groupeId)
+            .single();
         
-        if (groupesError) {
-            rapport += `❌ Erreur groupes: ${groupesError.message}\n`;
+        if (groupeError || !groupe) {
+            rapport += `❌ Groupe non trouvé\n`;
             return rapport;
         }
         
-        rapport += `👥 Groupes de cette section (${groupes?.length || 0}):\n`;
-        if (groupes && groupes.length > 0) {
-            groupes.forEach(g => {
-                rapport += `  - ${g.nom} (ID: ${g.id})\n`;
-            });
-        } else {
-            rapport += `  ❌ Aucun groupe trouvé pour cette section\n`;
-        }
-        rapport += '\n';
+        rapport += `👥 Groupe: ${groupe.nom}\n`;
+        rapport += `📊 Niveau: ${groupe.niveau || 'Non défini'}\n`;
+        rapport += `📊 Spécialité: ${groupe.specialite || 'Non définie'}\n\n`;
         
-        // 3. Récupérer toutes les séances
+        // 2. Récupérer toutes les séances de ce groupe
         const { data: seances, error: seancesError } = await supabase
             .from('seances')
-            .select('*')
+            .select('*, cours(nom), types_seances(nom), enseignants(nom)')
+            .eq('groupe_id', groupeId)
             .order('id');
         
         if (seancesError) {
@@ -575,61 +653,58 @@ export async function diagnostiquerSeances(sectionId: string): Promise<string> {
             return rapport;
         }
         
-        rapport += `⏰ Total des séances dans la base: ${seances?.length || 0}\n\n`;
+        rapport += `⏰ Séances pour ce groupe: ${seances?.length || 0}\n\n`;
         
         if (seances && seances.length > 0) {
             rapport += '📋 Détail des séances:\n';
-            seances.forEach(s => {
-                const groupe = groupes?.find(g => g.id === s.groupe_id);
-                rapport += `  - Séance ${s.id}: groupe_id=${s.groupe_id} → ${groupe ? groupe.nom : 'GROUPE INCONNU'}\n`;
+            seances.forEach((seance: any, index) => {
+                rapport += `  ${index + 1}. ${seance.cours?.nom || 'Cours inconnu'} - ${seance.types_seances?.nom || 'Type inconnu'}\n`;
+                rapport += `     Durée: ${seance.duree_minutes} minutes\n`;
+                if (seance.enseignants?.nom) {
+                    rapport += `     Enseignant: ${seance.enseignants.nom}\n`;
+                } else {
+                    rapport += `     Enseignant: Non assigné\n`;
+                }
+                rapport += '\n';
             });
-            rapport += '\n';
+        } else {
+            rapport += '❌ Aucune séance trouvée pour ce groupe\n\n';
         }
         
-        // 4. Identifier les séances pour cette section
-        if (groupes && groupes.length > 0 && seances && seances.length > 0) {
-            const groupeIds = groupes.map(g => g.id);
-            const seancesPourSection = seances.filter(s => groupeIds.includes(s.groupe_id));
-            
-            rapport += `🎯 Séances pour cette section: ${seancesPourSection.length}\n`;
-            
-            if (seancesPourSection.length > 0) {
-                rapport += 'Détail:\n';
-                seancesPourSection.forEach(s => {
-                    const groupe = groupes.find(g => g.id === s.groupe_id);
-                    rapport += `  - Séance ${s.id} → Groupe: ${groupe?.nom} (${s.groupe_id})\n`;
-                });
-            } else {
-                rapport += '❌ Aucune séance trouvée pour les groupes de cette section\n';
-            }
-            rapport += '\n';
-        }
+        // 3. Vérifier les contraintes
+        rapport += '🔍 VÉRIFICATION DES CONTRAINTES:\n';
         
-        // 5. Identifier les séances orphelines
         if (seances && seances.length > 0) {
-            const seancesOrphelines = seances.filter(s => !groupes?.find(g => g.id === s.groupe_id));
-            rapport += `⚠️ Séances orphelines (groupe inexistant): ${seancesOrphelines.length}\n`;
-            
-            if (seancesOrphelines.length > 0) {
-                rapport += 'Séances concernées:\n';
-                seancesOrphelines.forEach(s => {
-                    rapport += `  - Séance ${s.id}: groupe_id=${s.groupe_id} (groupe inexistant)\n`;
-                });
+            // Vérifier les séances sans enseignant
+            const seancesSansEnseignant = seances.filter((s: any) => !s.enseignant_id);
+            if (seancesSansEnseignant.length > 0) {
+                rapport += `⚠️ ${seancesSansEnseignant.length} séance(s) sans enseignant assigné\n`;
             }
-            rapport += '\n';
+            
+            // Vérifier les durées
+            const durees = seances.map((s: any) => s.duree_minutes).filter(Boolean);
+            if (durees.length > 0) {
+                const dureeTotale = durees.reduce((sum, duree) => sum + duree, 0);
+                rapport += `📊 Durée totale des séances: ${dureeTotale} minutes\n`;
+                rapport += `📊 Durée moyenne par séance: ${Math.round(dureeTotale / durees.length)} minutes\n`;
+            }
         }
         
-        // 6. Recommandations
-        rapport += '💡 RECOMMANDATIONS:\n';
-        if (!groupes || groupes.length === 0) {
-            rapport += '1. Créez des groupes pour la section "Licence 1 Informatique"\n';
+        rapport += '\n💡 RECOMMANDATIONS:\n';
+        if (!seances || seances.length === 0) {
+            rapport += '1. Créez des séances pour ce groupe\n';
         }
         if (seances && seances.length > 0) {
-            const seancesPourSection = seances.filter(s => groupes?.find(g => g.id === s.groupe_id));
-            if (seancesPourSection.length === 0) {
-                rapport += '2. Créez des séances pour les groupes de cette section\n';
-                rapport += '3. Ou corrigez les groupe_id des séances existantes\n';
+            const seancesSansEnseignant = seances.filter((s: any) => !s.enseignant_id);
+            if (seancesSansEnseignant.length > 0) {
+                rapport += '2. Assignez des enseignants aux séances\n';
             }
+        }
+        if (!groupe.niveau) {
+            rapport += '3. Définissez un niveau pour ce groupe\n';
+        }
+        if (!groupe.specialite) {
+            rapport += '4. Définissez une spécialité pour ce groupe\n';
         }
         
     } catch (error) {

@@ -10,17 +10,21 @@ import * as XLSX from 'xlsx'
 interface Cours {
   id: string
   nom: string
+  niveau: string | null
 }
 
 interface ExcelRow {
     nom: string;
+    niveau?: string;
 }
 
+const NIVEAUX = ['L1', 'L2', 'L3', 'M1', 'M2'];
 
 export default function CoursPage() {
     const [cours, setCours] = useState<Cours[]>([])
     const [newCours, setNewCours] = useState({
         nom: '',
+        niveau: ''
     })
     const [editingCours, setEditingCours] = useState<Cours | null>(null)
     const [loading, setLoading] = useState(true)
@@ -69,8 +73,12 @@ export default function CoursPage() {
                     if (!row.nom || typeof row.nom !== 'string' || row.nom.trim() === '') {
                         throw new Error('Chaque ligne doit avoir un "nom" valide.');
                     }
+                    if (row.niveau && !NIVEAUX.includes(row.niveau.trim())) {
+                        throw new Error(`Le niveau '${row.niveau}' n'est pas valide. Utilisez L1, L2, L3, M1 ou M2.`);
+                    }
                     return { 
                         nom: row.nom.trim(),
+                        niveau: row.niveau ? row.niveau.trim() : null
                     };
                 });
 
@@ -97,8 +105,8 @@ export default function CoursPage() {
 
     const handleAddCours = async (e: FormEvent) => {
         e.preventDefault()
-        if (!newCours.nom.trim()) {
-            setError('Le nom est obligatoire.')
+        if (!newCours.nom.trim() || !newCours.niveau) {
+            setError('Le nom et le niveau sont obligatoires.')
             return
         }
         setError(null)
@@ -106,6 +114,7 @@ export default function CoursPage() {
 
         const { data, error } = await supabase.from('cours').insert([{ 
             nom: newCours.nom.trim(),
+            niveau: newCours.niveau
         }]).select()
         
         if (error) {
@@ -114,7 +123,7 @@ export default function CoursPage() {
             setSuccess(null)
         } else if (data) {
             fetchCours() // Re-fetch pour avoir la liste à jour
-            setNewCours({ nom: '' })
+            setNewCours({ nom: '', niveau: '' })
             setError(null)
             setSuccess('Cours ajouté avec succès !')
         }
@@ -137,12 +146,13 @@ export default function CoursPage() {
 
     const handleUpdateCours = async (e: FormEvent) => {
         e.preventDefault()
-        if (!editingCours || !editingCours.nom.trim()) return
+        if (!editingCours || !editingCours.nom.trim() || !editingCours.niveau) return
 
         const { data, error } = await supabase
             .from('cours')
             .update({ 
                 nom: editingCours.nom.trim(),
+                niveau: editingCours.niveau
             })
             .eq('id', editingCours.id)
             .select()
@@ -175,6 +185,23 @@ export default function CoursPage() {
                             placeholder="Nom du cours"
                             required
                         />
+                    </div>
+                    {/* Niveau */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Niveau</label>
+                        <select
+                            value={editingCours?.niveau || ''}
+                            onChange={(e) => setEditingCours(editingCours ? { ...editingCours, niveau: e.target.value } : null)}
+                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            required
+                        >
+                            <option value="">Sélectionnez le niveau</option>
+                            {NIVEAUX.map((niveau) => (
+                                <option key={niveau} value={niveau}>
+                                    {niveau}
+                                </option>
+                            ))}
+                        </select>
                     </div>
                     <div className="flex justify-end space-x-4 pt-4">
                         <button type="button" onClick={() => setEditingCours(null)} className="px-6 py-2 border rounded-lg text-gray-700 bg-gray-100 hover:bg-gray-200">
@@ -234,6 +261,19 @@ export default function CoursPage() {
                             placeholder="Nom du cours"
                             required
                         />
+                        <select
+                            value={newCours.niveau}
+                            onChange={(e) => setNewCours({ ...newCours, niveau: e.target.value })}
+                            className="flex-1 p-2 border rounded bg-gray-50"
+                            required
+                        >
+                            <option value="">Sélectionnez le niveau</option>
+                            {NIVEAUX.map((niveau) => (
+                                <option key={niveau} value={niveau}>
+                                    {niveau}
+                                </option>
+                            ))}
+                        </select>
                         <button type="submit" className="bg-indigo-600 text-white p-2 rounded hover:bg-indigo-700 flex items-center">
                             <FaPlus className="mr-2"/> Ajouter Cours
                         </button>
@@ -247,6 +287,7 @@ export default function CoursPage() {
                             <thead>
                                 <tr>
                                     <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Nom du Cours</th>
+                                    <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Niveau</th>
                                     <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
                                 </tr>
                             </thead>
@@ -254,6 +295,7 @@ export default function CoursPage() {
                                 {cours.map(c => (
                                     <tr key={c.id} className="hover:bg-gray-50">
                                         <td className="px-5 py-4 border-b border-gray-200 text-sm">{c.nom}</td>
+                                        <td className="px-5 py-4 border-b border-gray-200 text-sm text-center">{c.niveau}</td>
                                         <td className="px-5 py-4 border-b border-gray-200 text-sm text-center">
                                             <div className="flex justify-center items-center space-x-3">
                                                 <button onClick={() => setEditingCours(c)} className="text-yellow-600 hover:text-yellow-800"><FaPencilAlt /></button>

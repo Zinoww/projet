@@ -10,8 +10,8 @@ moment.updateLocale('fr', { week: { dow: 0 } }); // 0 = dimanche
 
 // Types pour les données
 interface Section {
-    id: number
-    nom: string
+    id: string;
+    nom: string;
 }
 
 type EventData = {
@@ -30,14 +30,146 @@ const joursSemaine: { [key: string]: number } = {
 };
 
 export default function EmploiDuTempsPage() {
+    // États pour la hiérarchie de sélection
+    const [niveaux, setNiveaux] = useState<string[]>([])
+    const [specialites, setSpecialites] = useState<string[]>([])
     const [sections, setSections] = useState<Section[]>([])
+    
+    // États pour les sélections
+    const [selectedNiveau, setSelectedNiveau] = useState<string>('')
+    const [selectedSpecialite, setSelectedSpecialite] = useState<string>('')
     const [selectedSection, setSelectedSection] = useState<string>('')
+    
     const [events, setEvents] = useState<EventData[]>([])
     const [message, setMessage] = useState<string>('')
     const [loading, setLoading] = useState<boolean>(false)
     const [isGenerating, setIsGenerating] = useState<boolean>(false)
     const [currentWeek, setCurrentWeek] = useState(moment().startOf('week'))
     const [currentNiveau, setCurrentNiveau] = useState<string>('')
+
+    // Charger les données initiales au montage du composant
+    useEffect(() => {
+        chargerDonneesInitiales()
+    }, [])
+
+    // Charger les niveaux disponibles
+    useEffect(() => {
+        if (selectedNiveau) {
+            chargerSpecialites(selectedNiveau)
+        } else {
+            setSpecialites([])
+            setSelectedSpecialite('')
+        }
+    }, [selectedNiveau])
+
+    // Charger les sections disponibles
+    useEffect(() => {
+        if (selectedSpecialite) {
+            chargerSections(selectedNiveau, selectedSpecialite)
+        } else {
+            setSections([])
+            setSelectedSection('')
+        }
+    }, [selectedSpecialite, selectedNiveau])
+
+    const chargerDonneesInitiales = async () => {
+        try {
+            // Récupérer tous les niveaux distincts des cours
+            const { data: coursData, error } = await supabase
+                .from('cours')
+                .select('niveau')
+                .not('niveau', 'is', null)
+            
+            if (error) {
+                console.error('Erreur lors du chargement des niveaux:', error)
+                return
+            }
+
+            const niveauxUniques = [...new Set(coursData.map(c => c.niveau).filter(Boolean))]
+            setNiveaux(niveauxUniques.sort())
+        } catch (error) {
+            console.error('Erreur lors du chargement initial:', error)
+        }
+    }
+
+    const chargerSpecialites = async (niveau: string) => {
+        try {
+            console.log('🎯 chargerSpecialites appelé avec niveau:', niveau);
+            
+            // Temporairement, utiliser les groupes en attendant que les cours aient des spécialités
+            const { data, error } = await supabase
+                .from('groupes')
+                .select('specialite')
+                .eq('niveau', niveau)
+                .not('specialite', 'is', null)
+            
+            console.log('📊 Spécialités trouvées:', data);
+            console.log('❌ Erreur spécialités:', error);
+            
+            if (error) {
+                console.error('Erreur lors du chargement des spécialités:', error)
+                return
+            }
+
+            const specialitesUniques = [...new Set(data.map(g => g.specialite).filter(Boolean))]
+            console.log('🎨 Spécialités uniques:', specialitesUniques);
+            
+            setSpecialites(specialitesUniques.sort())
+            console.log('✅ Spécialités mises à jour:', specialitesUniques.sort());
+        } catch (error) {
+            console.error('Erreur lors du chargement des spécialités:', error)
+        }
+    }
+
+    const chargerSections = async (niveau: string, specialite: string) => {
+        try {
+            console.log('🔍 chargerSections appelé avec:', { niveau, specialite });
+            
+            // Temporairement, utiliser les groupes en attendant que les cours aient des spécialités
+            const { data: groupesData, error: groupesError } = await supabase
+                .from('groupes')
+                .select('section_id')
+                .eq('niveau', niveau)
+                .eq('specialite', specialite)
+            
+            console.log('📊 Groupes trouvés:', groupesData);
+            console.log('❌ Erreur groupes:', groupesError);
+            
+            if (groupesError) {
+                console.error('Erreur lors du chargement des groupes:', groupesError)
+                return
+            }
+
+            const sectionIds = [...new Set(groupesData.map(g => g.section_id))]
+            console.log('🏢 Section IDs trouvées:', sectionIds);
+            
+            if (sectionIds.length === 0) {
+                console.log('⚠️ Aucune section trouvée');
+                setSections([])
+                return
+            }
+
+            // Récupérer les détails des sections
+            const { data: sectionsData, error: sectionsError } = await supabase
+                .from('sections')
+                .select('id, nom')
+                .in('id', sectionIds)
+                .order('nom')
+            
+            console.log('📋 Sections récupérées:', sectionsData);
+            console.log('❌ Erreur sections:', sectionsError);
+            
+            if (sectionsError) {
+                console.error('Erreur lors du chargement des sections:', sectionsError)
+                return
+            }
+
+            setSections(sectionsData || [])
+            console.log('✅ Sections mises à jour:', sectionsData);
+        } catch (error) {
+            console.error('Erreur lors du chargement des sections:', error)
+        }
+    }
 
     // Fonction utilitaire pour déterminer le niveau principal
     const getMainNiveau = (groupes: any[]): string => {
@@ -83,19 +215,45 @@ export default function EmploiDuTempsPage() {
         console.log("Groupes récupérés:", groupeIds);
 
         // B. Trouver toutes les séances de ces groupes
-        let seances = [];
+        let seances: any[] = [];
         let seancesError = null;
         if (groupeIds.length > 0) {
-            const result = await supabase
+            // D'abord récupérer toutes les séances des groupes
+            const { data: allSeances, error: seancesError1 } = await supabase
                 .from('seances')
-                .select('id')
+                .select('id, cours_id')
                 .in('groupe_id', groupeIds);
-            seances = result.data || [];
-            seancesError = result.error;
+
+            if (seancesError1) {
+                seancesError = seancesError1;
+            } else if (allSeances && allSeances.length > 0) {
+                // Si un niveau est sélectionné, filtrer par le niveau des cours
+                if (selectedNiveau) {
+                    const coursIds = allSeances.map(s => s.cours_id);
+                    const { data: coursData, error: coursError } = await supabase
+                        .from('cours')
+                        .select('id')
+                        .in('id', coursIds)
+                        .eq('niveau', selectedNiveau);
+                    
+                    if (coursError) {
+                        seancesError = coursError;
+                    } else if (coursData) {
+                        const coursIdsFiltered = coursData.map(c => c.id);
+                        seances = allSeances.filter(s => coursIdsFiltered.includes(s.cours_id));
+                    }
+                } else {
+                    seances = allSeances;
+                }
+            }
         } else {
             // Aucun groupe, donc pas de séances à récupérer
             setLoading(false);
             setEvents([]);
+            setMessage(selectedNiveau ? 
+                `Aucun groupe trouvé pour le niveau ${selectedNiveau} dans cette section.` : 
+                'Aucun groupe trouvé pour cette section.'
+            );
             return;
         }
         console.log("Séances récupérées:", seances);
@@ -103,6 +261,10 @@ export default function EmploiDuTempsPage() {
         if (seancesError || !seances || seances.length === 0) {
             setLoading(false);
             setEvents([]);
+            setMessage(selectedNiveau ? 
+                `Aucune séance trouvée pour le niveau ${selectedNiveau} dans cette section.` : 
+                'Aucune séance trouvée pour cette section.'
+            );
             return;
         }
         const seanceIds = seances.map(s => s.id);
@@ -121,7 +283,7 @@ export default function EmploiDuTempsPage() {
                 id, jour, heure_debut, heure_fin,
                 salles ( nom ),
                 seances (
-                    cours ( nom ),
+                    cours ( nom, niveau ),
                     types_seances ( nom ),
                     enseignants ( nom )
                 )
@@ -153,22 +315,8 @@ export default function EmploiDuTempsPage() {
 
         setEvents(formattedEvents);
         setLoading(false);
-    }, [currentWeek]);
+    }, [currentWeek, selectedNiveau]);
     
-    // 1. Charger les sections au démarrage
-    useEffect(() => {
-        const fetchSections = async () => {
-            const { data, error } = await supabase.from('sections').select('id, nom').order('nom')
-            if (error) {
-                setMessage('Erreur lors du chargement des sections.')
-                console.error(error)
-            } else {
-                setSections(data || [])
-            }
-        }
-        fetchSections()
-    }, [])
-
     // 2. Charger l'emploi du temps quand une section est sélectionnée
     useEffect(() => {
         if (selectedSection) {
@@ -186,12 +334,17 @@ export default function EmploiDuTempsPage() {
             return
         }
 
-        if (!confirm(`Êtes-vous sûr de vouloir remplacer l'emploi du temps actuel de cette section ?`)) {
+        const sectionName = sections.find(s => s.id === selectedSection)?.nom || '';
+        const confirmMessage = selectedNiveau ? 
+            `Êtes-vous sûr de vouloir remplacer l'emploi du temps actuel de la section "${sectionName}" pour le niveau ${selectedNiveau} ?` :
+            `Êtes-vous sûr de vouloir remplacer l'emploi du temps actuel de la section "${sectionName}" ?`;
+
+        if (!confirm(confirmMessage)) {
             return
         }
 
         setIsGenerating(true)
-        const success = await genererEmploiDuTemps(selectedSection, setMessage)
+        const success = await genererEmploiDuTemps(selectedSection, setMessage, selectedNiveau)
         setIsGenerating(false)
 
         if (success) {
@@ -201,7 +354,7 @@ export default function EmploiDuTempsPage() {
 
     // Ajout pour PDF pro
     
-    const selectedSectionObj = sections.find(s => String(s.id) === selectedSection);
+    const selectedSectionObj = sections.find(s => s.id === selectedSection);
     const sectionName = selectedSectionObj ? selectedSectionObj.nom : '';
 
     // À adapter selon ta logique métier
@@ -255,33 +408,105 @@ export default function EmploiDuTempsPage() {
                 </header>
 
                 <div className="bg-white p-6 rounded-2xl shadow-xl mb-8 border border-indigo-100">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
-                        <div className="md:col-span-2">
-                            <label htmlFor="section-select" className="block text-sm font-medium text-gray-700 mb-1">
-                                Sélectionner une Section
+                    <h2 className="text-lg font-semibold mb-4 text-gray-800">Sélection hiérarchique</h2>
+                    
+                    {/* Sélection en cascade */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                        {/* Niveau */}
+                        <div>
+                            <label htmlFor="niveau" className="block text-sm font-medium text-gray-700 mb-2">
+                                Niveau :
                             </label>
                             <select
-                                id="section-select"
-                                value={selectedSection}
-                                onChange={(e) => setSelectedSection(e.target.value)}
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                id="niveau"
+                                value={selectedNiveau}
+                                onChange={(e) => {
+                                    setSelectedNiveau(e.target.value)
+                                    setSelectedSpecialite('')
+                                    setSelectedSection('')
+                                }}
+                                className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                                 disabled={isGenerating}
                             >
-                                <option value="">-- Choisissez une section --</option>
-                                {sections.map(section => (
-                                    <option key={section.id} value={section.id}>{section.nom}</option>
+                                <option value="">Sélectionner un niveau</option>
+                                {niveaux.map((niveau) => (
+                                    <option key={niveau} value={niveau}>
+                                        {niveau}
+                                    </option>
                                 ))}
                             </select>
                         </div>
+
+                        {/* Spécialité */}
+                        <div>
+                            <label htmlFor="specialite" className="block text-sm font-medium text-gray-700 mb-2">
+                                Spécialité :
+                            </label>
+                            <select
+                                id="specialite"
+                                value={selectedSpecialite}
+                                onChange={(e) => {
+                                    setSelectedSpecialite(e.target.value)
+                                    setSelectedSection('')
+                                }}
+                                className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                disabled={isGenerating || !selectedNiveau}
+                            >
+                                <option value="">Sélectionner une spécialité</option>
+                                {specialites.map((specialite) => (
+                                    <option key={specialite} value={specialite}>
+                                        {specialite}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* Section */}
+                        <div>
+                            <label htmlFor="section" className="block text-sm font-medium text-gray-700 mb-2">
+                                Section :
+                            </label>
+                            <select
+                                id="section"
+                                value={selectedSection}
+                                onChange={(e) => setSelectedSection(e.target.value)}
+                                className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                disabled={isGenerating || !selectedSpecialite}
+                            >
+                                <option value="">Sélectionner une section</option>
+                                {sections.map((section) => (
+                                    <option key={section.id} value={section.id}>
+                                        {section.nom}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+
+                    {/* Informations de sélection */}
+                    {selectedSection && (
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                            <h3 className="font-semibold text-blue-800 mb-2">Section sélectionnée :</h3>
+                            <p className="text-blue-700">
+                                <strong>Niveau :</strong> {selectedNiveau} | 
+                                <strong> Spécialité :</strong> {selectedSpecialite} | 
+                                <strong> Section :</strong> {sections.find(s => s.id === selectedSection)?.nom}
+                            </p>
+                        </div>
+                    )}
+
+                    {/* Bouton de génération */}
+                    <div className="flex justify-center">
                         <button
                             onClick={handleGenerate}
                             disabled={!selectedSection || isGenerating}
-                            className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition-colors disabled:bg-indigo-300 disabled:cursor-not-allowed"
+                            className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition-colors disabled:bg-indigo-300 disabled:cursor-not-allowed"
                         >
                             <FaCogs className={isGenerating ? 'animate-spin' : ''} />
                             {isGenerating ? 'Génération...' : "Générer l'Emploi du Temps"}
                         </button>
                     </div>
+
                     {message && (
                         <div className={`mt-4 text-center p-3 rounded-lg ${isGenerating ? 'text-blue-700 bg-blue-100' : 'text-gray-700 bg-gray-100'}`}>
                            {message}
