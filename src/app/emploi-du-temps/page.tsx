@@ -199,7 +199,7 @@ export default function EmploiDuTempsPage() {
     const fetchTimetable = useCallback(async (sectionId: string) => {
         setLoading(true);
         setMessage('');
-
+        
         // A. Récupérer tous les groupes de cette section
         const { data: groupes, error: groupesError } = await supabase
             .from('groupes')

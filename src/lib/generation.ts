@@ -15,6 +15,20 @@ interface EmploiDuTempsItem {
     salle_id: string;
 }
 
+interface SeancePlacement {
+    seance: any;
+    jour: string;
+    creneau: Creneau;
+    salle_id: string;
+}
+
+interface PlacementState {
+    planning: EmploiDuTempsItem[];
+    planningGroupes: { [key: string]: { [key: string]: string[] } };
+    planningEnseignants: { [key: string]: { [key: string]: string[] } };
+    planningSalles: { [key: string]: { [key: string]: string[] } };
+}
+
 // --- 2. HELPER FUNCTIONS ---
 
 function shuffle<T>(array: T[]): T[] {
@@ -23,6 +37,396 @@ function shuffle<T>(array: T[]): T[] {
         [array[i], array[j]] = [array[j], array[i]];
     }
     return array;
+}
+
+// Fonction pour calculer la difficulté de placement d'une séance
+function calculerDifficultePlacement(seance: any, groupes: any[], salles: any[]): number {
+    let difficulte = 0;
+    
+    // Plus de groupes = plus difficile
+    if (seance.types_seances?.nom?.toLowerCase().includes('cm')) {
+        difficulte += groupes.length * 10;
+    } else {
+        difficulte += 5; // TD/TP
+    }
+    
+    // Enseignant assigné = plus difficile
+    if (seance.enseignant_id) {
+        difficulte += 20;
+    }
+    
+    // Durée plus longue = plus difficile
+    difficulte += (seance.duree_minutes || 90) / 30;
+    
+    return difficulte;
+}
+
+// Fonction pour vérifier si une séance peut être placée
+function peutPlacerSeance(
+    seance: any,
+    jour: string,
+    creneau: Creneau,
+    salle_id: string,
+    state: PlacementState,
+    groupes: any[],
+    amphis: any[],
+    sallesNormales: any[]
+): boolean {
+    // Vérifier si le groupe est disponible
+    if (seance.types_seances?.nom?.toLowerCase().includes('cm')) {
+        // Pour les CM, vérifier que tous les groupes sont libres
+        const groupesOccupe = state.planningGroupes[jour]?.[creneau.debut]?.length > 0;
+        if (groupesOccupe) return false;
+    } else {
+        // Pour les TD/TP, vérifier que le groupe spécifique est libre
+        const groupeOccupe = state.planningGroupes[jour]?.[creneau.debut]?.includes(seance.groupe_id);
+        if (groupeOccupe) return false;
+    }
+
+    // Vérifier si l'enseignant est disponible
+    if (seance.enseignant_id) {
+        const enseignantOccupe = state.planningEnseignants[jour]?.[creneau.debut]?.includes(seance.enseignant_id);
+        if (enseignantOccupe) return false;
+    }
+
+    // Vérifier si la salle est disponible
+    const salleOccupee = state.planningSalles[jour]?.[creneau.debut]?.includes(salle_id);
+    if (salleOccupee) return false;
+
+    // Vérifier la capacité de la salle
+    const salle = [...amphis, ...sallesNormales].find(s => s.id === salle_id);
+    if (!salle || !salle.capacite) return false;
+
+    if (seance.types_seances?.nom?.toLowerCase().includes('cm')) {
+        // Pour les CM, vérifier la capacité pour tous les groupes
+        if (salle.capacite < groupes.length * 30) return false;
+    } else {
+        // Pour les TD/TP, vérifier la capacité pour un groupe
+        if (salle.capacite < 30) return false;
+    }
+
+    return true;
+}
+
+// Fonction pour placer une séance
+function placerSeance(
+    seance: any,
+    jour: string,
+    creneau: Creneau,
+    salle_id: string,
+    state: PlacementState,
+    groupes: any[]
+): PlacementState {
+    const newState = {
+        planning: [...state.planning, {
+            seance_id: seance.id,
+            jour: jour,
+            heure_debut: creneau.debut,
+            heure_fin: creneau.fin,
+            salle_id: salle_id
+        }],
+        planningGroupes: { ...state.planningGroupes },
+        planningEnseignants: { ...state.planningEnseignants },
+        planningSalles: { ...state.planningSalles }
+    };
+
+    // Initialiser les structures si nécessaire
+    if (!newState.planningGroupes[jour]) newState.planningGroupes[jour] = {};
+    if (!newState.planningGroupes[jour][creneau.debut]) newState.planningGroupes[jour][creneau.debut] = [];
+    if (!newState.planningEnseignants[jour]) newState.planningEnseignants[jour] = {};
+    if (!newState.planningEnseignants[jour][creneau.debut]) newState.planningEnseignants[jour][creneau.debut] = [];
+    if (!newState.planningSalles[jour]) newState.planningSalles[jour] = {};
+    if (!newState.planningSalles[jour][creneau.debut]) newState.planningSalles[jour][creneau.debut] = [];
+
+    // Marquer les groupes comme occupés
+    if (seance.types_seances?.nom?.toLowerCase().includes('cm')) {
+        groupes.forEach(groupe => {
+            if (!newState.planningGroupes[jour][creneau.debut].includes(groupe.id)) {
+                newState.planningGroupes[jour][creneau.debut].push(groupe.id);
+            }
+        });
+    } else {
+        if (!newState.planningGroupes[jour][creneau.debut].includes(seance.groupe_id)) {
+            newState.planningGroupes[jour][creneau.debut].push(seance.groupe_id);
+        }
+    }
+
+    // Marquer l'enseignant comme occupé
+    if (seance.enseignant_id) {
+        if (!newState.planningEnseignants[jour][creneau.debut].includes(seance.enseignant_id)) {
+            newState.planningEnseignants[jour][creneau.debut].push(seance.enseignant_id);
+        }
+    }
+
+    // Marquer la salle comme occupée
+    if (!newState.planningSalles[jour][creneau.debut].includes(salle_id)) {
+        newState.planningSalles[jour][creneau.debut].push(salle_id);
+    }
+
+    return newState;
+}
+
+// Fonction de backtracking principale
+function backtrackingPlacement(
+    seances: any[],
+    state: PlacementState,
+    groupes: any[],
+    amphis: any[],
+    sallesNormales: any[],
+    jours: string[],
+    creneaux: Creneau[],
+    maxIterations: number = 10000
+): PlacementState | null {
+    if (seances.length === 0) {
+        return state; // Solution trouvée
+    }
+
+    if (maxIterations <= 0) {
+        return null; // Timeout
+    }
+
+    const seance = seances[0];
+    const seancesRestantes = seances.slice(1);
+
+    // Déterminer les salles appropriées selon le type
+    const sallesAppropriees = seance.types_seances?.nom?.toLowerCase().includes('cm') 
+        ? amphis 
+        : sallesNormales;
+
+    // Essayer tous les créneaux possibles
+    for (const jour of shuffle([...jours])) {
+        for (const creneau of shuffle([...creneaux])) {
+            // Essayer toutes les salles appropriées
+            for (const salle of shuffle([...sallesAppropriees])) {
+                if (peutPlacerSeance(seance, jour, creneau, salle.id, state, groupes, amphis, sallesNormales)) {
+                    const newState = placerSeance(seance, jour, creneau, salle.id, state, groupes);
+                    
+                    const resultat = backtrackingPlacement(
+                        seancesRestantes,
+                        newState,
+                        groupes,
+                        amphis,
+                        sallesNormales,
+                        jours,
+                        creneaux,
+                        maxIterations - 1
+                    );
+
+                    if (resultat) {
+                        return resultat; // Solution trouvée
+                    }
+                    // Sinon, continuer avec la prochaine salle
+                }
+            }
+        }
+    }
+
+    return null; // Aucune solution trouvée
+}
+
+// Fonction d'amélioration locale
+function ameliorationLocale(
+    state: PlacementState,
+    groupes: any[],
+    amphis: any[],
+    sallesNormales: any[],
+    jours: string[],
+    creneaux: Creneau[]
+): PlacementState {
+    let amelioration = true;
+    let iterations = 0;
+    const maxIterations = 100;
+
+    console.log('🔧 Début de l\'amélioration locale...');
+
+    while (amelioration && iterations < maxIterations) {
+        amelioration = false;
+        iterations++;
+
+        // Essayer d'échanger des créneaux pour optimiser
+        for (let i = 0; i < state.planning.length; i++) {
+            for (let j = i + 1; j < state.planning.length; j++) {
+                const placement1 = state.planning[i];
+                const placement2 = state.planning[j];
+
+                // Vérifier si l'échange est possible et bénéfique
+                if (peutEchangerPlacements(placement1, placement2, state, groupes, amphis, sallesNormales)) {
+                    // Calculer le score avant échange
+                    const scoreAvant = calculerScorePlanning(state);
+                    
+                    // Effectuer l'échange
+                    const newState = echangerPlacements(placement1, placement2, state);
+                    if (newState) {
+                        // Calculer le score après échange
+                        const scoreApres = calculerScorePlanning(newState);
+                        
+                        // Garder l'échange seulement s'il améliore le score
+                        if (scoreApres > scoreAvant) {
+                            state = newState;
+                            amelioration = true;
+                            console.log(`✅ Échange améliorant: ${scoreAvant} → ${scoreApres}`);
+                            break;
+                        }
+                    }
+                }
+            }
+            if (amelioration) break;
+        }
+    }
+
+    console.log(`🔧 Amélioration locale terminée après ${iterations} itérations`);
+    return state;
+}
+
+// Fonction pour calculer un score de qualité du planning
+function calculerScorePlanning(state: PlacementState): number {
+    let score = 0;
+    
+    // Score de base pour chaque séance placée
+    score += state.planning.length * 100;
+    
+    // Bonus pour la répartition équilibrée
+    const repartitionJours: { [key: string]: number } = {};
+    state.planning.forEach(p => {
+        repartitionJours[p.jour] = (repartitionJours[p.jour] || 0) + 1;
+    });
+    
+    // Pénaliser les jours surchargés
+    Object.values(repartitionJours).forEach(count => {
+        if (count > 3) {
+            score -= (count - 3) * 10; // Pénalité pour surcharge
+        }
+    });
+    
+    // Bonus pour les créneaux matinaux (préférés)
+    state.planning.forEach(p => {
+        const heure = parseInt(p.heure_debut.split(':')[0]);
+        if (heure < 12) {
+            score += 5; // Bonus pour le matin
+        }
+    });
+    
+    return score;
+}
+
+// Fonction pour vérifier si deux placements peuvent être échangés
+function peutEchangerPlacements(
+    placement1: EmploiDuTempsItem,
+    placement2: EmploiDuTempsItem,
+    state: PlacementState,
+    groupes: any[],
+    amphis: any[],
+    sallesNormales: any[]
+): boolean {
+    // Ne pas échanger si c'est le même placement
+    if (placement1.seance_id === placement2.seance_id) return false;
+    
+    // Récupérer les détails des séances
+    const seance1 = state.planning.find(p => p.seance_id === placement1.seance_id);
+    const seance2 = state.planning.find(p => p.seance_id === placement2.seance_id);
+    
+    if (!seance1 || !seance2) return false;
+    
+    // Vérifier si l'échange respecte les contraintes
+    const tempState = { ...state };
+    
+    // Simuler l'échange
+    const tempJour1 = placement1.jour;
+    const tempCreneau1 = { debut: placement1.heure_debut, fin: placement1.heure_fin };
+    const tempSalle1 = placement1.salle_id;
+    
+    const tempJour2 = placement2.jour;
+    const tempCreneau2 = { debut: placement2.heure_debut, fin: placement2.heure_fin };
+    const tempSalle2 = placement2.salle_id;
+    
+    // Vérifier si les nouveaux placements sont possibles
+    const peutPlacer1 = peutPlacerSeance(
+        seance1 as any,
+        tempJour2,
+        tempCreneau2,
+        tempSalle2,
+        tempState,
+        groupes,
+        amphis,
+        sallesNormales
+    );
+    
+    const peutPlacer2 = peutPlacerSeance(
+        seance2 as any,
+        tempJour1,
+        tempCreneau1,
+        tempSalle1,
+        tempState,
+        groupes,
+        amphis,
+        sallesNormales
+    );
+    
+    return peutPlacer1 && peutPlacer2;
+}
+
+// Fonction pour échanger deux placements
+function echangerPlacements(
+    placement1: EmploiDuTempsItem,
+    placement2: EmploiDuTempsItem,
+    state: PlacementState
+): PlacementState | null {
+    try {
+        const newState = {
+            planning: [...state.planning],
+            planningGroupes: { ...state.planningGroupes },
+            planningEnseignants: { ...state.planningEnseignants },
+            planningSalles: { ...state.planningSalles }
+        };
+        
+        // Trouver les indices des placements
+        const index1 = newState.planning.findIndex(p => p.seance_id === placement1.seance_id);
+        const index2 = newState.planning.findIndex(p => p.seance_id === placement2.seance_id);
+        
+        if (index1 === -1 || index2 === -1) return null;
+        
+        // Échanger les créneaux et salles
+        const temp = { ...newState.planning[index1] };
+        newState.planning[index1] = {
+            ...newState.planning[index2],
+            jour: placement1.jour,
+            heure_debut: placement1.heure_debut,
+            heure_fin: placement1.heure_fin,
+            salle_id: placement1.salle_id
+        };
+        newState.planning[index2] = {
+            ...temp,
+            jour: placement2.jour,
+            heure_debut: placement2.heure_debut,
+            heure_fin: placement2.heure_fin,
+            salle_id: placement2.salle_id
+        };
+        
+        // Mettre à jour les structures de suivi
+        // Supprimer les anciennes entrées
+        if (newState.planningGroupes[placement1.jour]?.[placement1.heure_debut]) {
+            newState.planningGroupes[placement1.jour][placement1.heure_debut] = 
+                newState.planningGroupes[placement1.jour][placement1.heure_debut].filter(id => id !== placement1.seance_id);
+        }
+        if (newState.planningGroupes[placement2.jour]?.[placement2.heure_debut]) {
+            newState.planningGroupes[placement2.jour][placement2.heure_debut] = 
+                newState.planningGroupes[placement2.jour][placement2.heure_debut].filter(id => id !== placement2.seance_id);
+        }
+        
+        // Ajouter les nouvelles entrées
+        if (!newState.planningGroupes[placement2.jour]) newState.planningGroupes[placement2.jour] = {};
+        if (!newState.planningGroupes[placement2.jour][placement2.heure_debut]) newState.planningGroupes[placement2.jour][placement2.heure_debut] = [];
+        if (!newState.planningGroupes[placement1.jour]) newState.planningGroupes[placement1.jour] = {};
+        if (!newState.planningGroupes[placement1.jour][placement1.heure_debut]) newState.planningGroupes[placement1.jour][placement1.heure_debut] = [];
+        
+        newState.planningGroupes[placement2.jour][placement2.heure_debut].push(placement1.seance_id);
+        newState.planningGroupes[placement1.jour][placement1.heure_debut].push(placement2.seance_id);
+        
+        return newState;
+    } catch (error) {
+        console.error('Erreur lors de l\'échange:', error);
+        return null;
+    }
 }
 
 // Fonction de diagnostic simplifiée pour éviter les problèmes de performance
@@ -84,14 +488,14 @@ export async function diagnostiquerDonneesSimple(sectionId: string): Promise<str
         // 4. Analyser les types de séances
         if (nbSeances && nbSeances > 0) {
             const { data: seancesDetails, error: detailsError } = await supabase
-                .from('seances')
+            .from('seances')
                 .select('id, duree_minutes, cours_id, type_id, groupe_id, cours(nom), types_seances(nom), enseignants(nom)')
                 .in('groupe_id', groupeIds)
                 .limit(10);
             
             if (detailsError) {
                 rapport += `❌ Erreur détails séances: ${detailsError.message}\n`;
-            } else {
+        } else {
                 rapport += `📋 Analyse des séances:\n`;
                 
                 // Compter par type
@@ -137,7 +541,7 @@ export async function genererEmploiDuTemps(
     niveau?: string
 ): Promise<boolean> {
     // --- Étape 1: Récupération des données ---
-    setMessage('1/6 - Récupération des données...');
+    setMessage('1/7 - Récupération des données...');
 
     // a. Récupérer tous les groupes de la section
     const { data: groupes, error: groupesError } = await supabase
@@ -156,7 +560,7 @@ export async function genererEmploiDuTemps(
     // b. Récupérer TOUS les cours du niveau si spécifié
     let coursIds: string[] = [];
     if (niveau) {
-        setMessage(`1/6 - Récupération de TOUS les cours du niveau ${niveau}...`);
+        setMessage(`1/7 - Récupération de TOUS les cours du niveau ${niveau}...`);
         const { data: cours, error: coursError } = await supabase
             .from('cours')
             .select('id, nom')
@@ -225,8 +629,8 @@ export async function genererEmploiDuTemps(
     console.log(`Amphis disponibles:`, amphis.map(s => `${s.nom} (${s.capacite} places)`));
     console.log(`Salles normales disponibles:`, sallesNormales.map(s => `${s.nom} (${s.capacite} places)`));
 
-    // --- Étape 2: Organisation des séances par type ---
-    setMessage('2/6 - Organisation des séances par type...');
+    // --- Étape 2: Organisation et tri des séances par difficulté ---
+    setMessage('2/7 - Organisation et tri des séances...');
 
     // Séparer les séances par type
     const seancesCM = seances.filter(s => (s.types_seances as { nom: string })?.nom?.toLowerCase().includes('cm'));
@@ -237,8 +641,22 @@ export async function genererEmploiDuTemps(
     console.log(`Groupes dans la section: ${groupes.length} (${groupes.map(g => g.nom).join(', ')})`);
     console.log(`Capacité nécessaire pour CM: ${groupes.length * 30} étudiants`);
 
+    // Trier les séances par difficulté de placement (plus difficile en premier)
+    const toutesSeances = [...seancesCM, ...seancesTD, ...seancesTP];
+    const seancesTriees = toutesSeances.sort((a, b) => {
+        const difficulteA = calculerDifficultePlacement(a, groupes, salles);
+        const difficulteB = calculerDifficultePlacement(b, groupes, salles);
+        return difficulteB - difficulteA; // Ordre décroissant
+    });
+
+    console.log('Séances triées par difficulté:', seancesTriees.map(s => ({
+        cours: (s.cours as { nom: string })?.nom,
+        type: (s.types_seances as { nom: string })?.nom,
+        difficulte: calculerDifficultePlacement(s, groupes, salles)
+    })));
+
     // --- Étape 3: Initialisation du planning ---
-    setMessage('3/6 - Initialisation du planning...');
+    setMessage('3/7 - Initialisation du planning...');
     const jours = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi'];
     const creneaux: Creneau[] = [
         { debut: '08:00:00', fin: '09:30:00' },
@@ -248,177 +666,59 @@ export async function genererEmploiDuTemps(
         { debut: '15:00:00', fin: '16:30:00' }
     ];
 
-    const planning: EmploiDuTempsItem[] = [];
-    const planningGroupes: { [key: string]: { [key: string]: string[] } } = {}; // jour -> créneau -> groupes
+    // État initial du planning
+    const initialState: PlacementState = {
+        planning: [],
+        planningGroupes: {},
+        planningEnseignants: {},
+        planningSalles: {}
+    };
 
-    // Initialiser la structure de suivi des groupes
-    jours.forEach(jour => {
-        planningGroupes[jour] = {};
-        creneaux.forEach(creneau => {
-            planningGroupes[jour][creneau.debut] = [];
-        });
-    });
+    // --- Étape 4: Algorithme de backtracking ---
+    setMessage('4/7 - Placement des séances avec backtracking...');
 
-    // --- Étape 4: Placement des CM (tous les groupes ensemble) ---
-    setMessage('4/6 - Placement des cours magistraux...');
+    const resultat = backtrackingPlacement(
+        seancesTriees,
+        initialState,
+        groupes,
+        amphis,
+        sallesNormales,
+        jours,
+        creneaux,
+        15000 // Limite d'itérations
+    );
 
-    const sessionsNonPlacees: string[] = [];
-
-    for (const seanceCM of seancesCM) {
-        let placee = false;
-        
-        for (const jour of shuffle(jours)) {
-            for (const creneau of shuffle(creneaux)) {
-                // Vérifier si aucun groupe n'est occupé à ce créneau
-                const groupesOccupe = planningGroupes[jour][creneau.debut].length > 0;
-                if (groupesOccupe) continue;
-
-                // Vérifier si l'enseignant est disponible
-                if (seanceCM.enseignant_id) {
-                    const enseignantOccupe = planning.some(p => {
-                        const seancePlanifiee = seances.find(s => s.id === p.seance_id);
-                        return seancePlanifiee?.enseignant_id === seanceCM.enseignant_id && 
-                               p.jour === jour && p.heure_debut === creneau.debut;
-                    });
-                    if (enseignantOccupe) continue;
-                }
-
-                // Trouver une salle appropriée (plus grande capacité pour CM)
-                const salleCM = amphis.find(s => s.capacite && s.capacite >= groupes.length * 30); // Estimation 30 étudiants par groupe
-                if (!salleCM) continue;
-
-                // Vérifier si la salle est libre
-                const salleOccupee = planning.some(p => 
-                    p.salle_id === salleCM.id && p.jour === jour && p.heure_debut === creneau.debut
-                );
-                if (salleOccupee) continue;
-
-                // Placer le CM
-                planning.push({
-                    seance_id: seanceCM.id,
-                    jour: jour,
-                    heure_debut: creneau.debut,
-                    heure_fin: creneau.fin,
-                    salle_id: salleCM.id
-                });
-
-                // Marquer tous les groupes comme occupés
-                groupes.forEach(groupe => {
-                    if (!planningGroupes[jour][creneau.debut].includes(groupe.id)) {
-                        planningGroupes[jour][creneau.debut].push(groupe.id);
-                    }
-                });
-
-                placee = true;
-                break;
-            }
-            if (placee) break;
-        }
-
-        if (!placee) {
-            const nomCours = (seanceCM.cours as { nom: string })?.nom || 'Cours inconnu';
-            sessionsNonPlacees.push(`CM: ${nomCours}`);
-            console.log(`Impossible de placer le CM: ${nomCours}`);
-            
-            // Debug: Vérifier les contraintes
-            const capaciteNecessaire = groupes.length * 30;
-            const sallesAdequates = amphis.filter(s => s.capacite && s.capacite >= capaciteNecessaire);
-            console.log(`Amphis avec capacité ≥${capaciteNecessaire}: ${sallesAdequates.map(s => s.nom).join(', ')}`);
-            console.log(`Total amphis disponibles: ${amphis.length}`);
-            
-            if (seanceCM.enseignant_id) {
-                const enseignant = seances.find(s => s.id === seanceCM.id)?.enseignants as { nom: string };
-                console.log(`Enseignant: ${enseignant?.nom || 'Non assigné'}`);
-            }
-        }
+    if (!resultat) {
+        setMessage('Impossible de placer toutes les séances avec l\'algorithme de backtracking.');
+        return false;
     }
 
-    // --- Étape 5: Placement des TD/TP (groupes séparés avec partage possible) ---
-    setMessage('5/6 - Placement des TD/TP...');
+    // --- Étape 5: Amélioration locale ---
+    setMessage('5/7 - Amélioration locale du planning...');
 
-    const seancesTDTP = [...seancesTD, ...seancesTP];
-    
-    for (const seance of seancesTDTP) {
-        let placee = false;
-        
-        for (const jour of shuffle(jours)) {
-            for (const creneau of shuffle(creneaux)) {
-                // Vérifier si le groupe de cette séance est déjà occupé
-                const groupeOccupe = planningGroupes[jour][creneau.debut].includes(seance.groupe_id);
-                if (groupeOccupe) continue;
+    const planningAmeliore = ameliorationLocale(
+        resultat,
+        groupes,
+        amphis,
+        sallesNormales,
+        jours,
+        creneaux
+    );
 
-                // Vérifier si l'enseignant est disponible
-                if (seance.enseignant_id) {
-                    const enseignantOccupe = planning.some(p => {
-                        const seancePlanifiee = seances.find(s => s.id === p.seance_id);
-                        return seancePlanifiee?.enseignant_id === seance.enseignant_id && 
-                               p.jour === jour && p.heure_debut === creneau.debut;
-                    });
-                    if (enseignantOccupe) continue;
-                }
+    // --- Étape 5.5: Optimisation avancée ---
+    setMessage('5.5/7 - Optimisation avancée avec recherche tabou...');
 
-                // Trouver une salle appropriée
-                const salle = sallesNormales.find(s => s.capacite && s.capacite >= 30); // Capacité pour un groupe
-                if (!salle) continue;
-
-                // Vérifier si la salle est libre ou peut être partagée
-                const seancesDansSalle = planning.filter(p => 
-                    p.salle_id === salle.id && p.jour === jour && p.heure_debut === creneau.debut
-                );
-
-                if (seancesDansSalle.length > 0) {
-                    // Vérifier si on peut partager la salle (même type de séance)
-                    const seanceExistante = seances.find(s => s.id === seancesDansSalle[0].seance_id);
-                    const memeType = (seance.types_seances as { nom: string })?.nom === (seanceExistante?.types_seances as { nom: string })?.nom;
-                    
-                    if (!memeType) continue; // Types différents, ne peut pas partager
-                    
-                    // Vérifier la capacité de la salle pour plusieurs groupes
-                    const groupesDansSalle = planningGroupes[jour][creneau.debut].length;
-                    if (salle.capacite && salle.capacite < (groupesDansSalle + 1) * 30) continue;
-                }
-
-                // Placer la séance
-                planning.push({
-                    seance_id: seance.id,
-                    jour: jour,
-                    heure_debut: creneau.debut,
-                    heure_fin: creneau.fin,
-                    salle_id: salle.id
-                });
-
-                // Marquer le groupe comme occupé
-                planningGroupes[jour][creneau.debut].push(seance.groupe_id);
-
-                placee = true;
-                break;
-            }
-            if (placee) break;
-        }
-
-        if (!placee) {
-            const nomCours = (seance.cours as { nom: string })?.nom || 'Cours inconnu';
-            const typeSeance = (seance.types_seances as { nom: string })?.nom || 'Type inconnu';
-            sessionsNonPlacees.push(`${typeSeance}: ${nomCours}`);
-            console.log(`Impossible de placer la séance: ${nomCours} - ${typeSeance}`);
-            
-            // Debug: Vérifier les contraintes
-            const sallesAdequates = sallesNormales.filter(s => s.capacite && s.capacite >= 30);
-            console.log(`Salles normales avec capacité ≥30: ${sallesAdequates.map(s => s.nom).join(', ')}`);
-            console.log(`Total salles normales disponibles: ${sallesNormales.length}`);
-            
-            if (seance.enseignant_id) {
-                const enseignant = seances.find(s => s.id === seance.id)?.enseignants as { nom: string };
-                console.log(`Enseignant: ${enseignant?.nom || 'Non assigné'}`);
-            }
-            
-            const groupe = groupes.find(g => g.id === seance.groupe_id);
-            console.log(`Groupe: ${groupe?.nom || 'Inconnu'}`);
-        }
-    }
+    const planningOptimise = optimisationAvancee(
+        planningAmeliore,
+        groupes,
+        amphis,
+        sallesNormales,
+        jours,
+        creneaux
+    );
 
     // --- Étape 6: Sauvegarde du résultat ---
-    setMessage('6/6 - Sauvegarde du nouvel emploi du temps...');
+    setMessage('6/7 - Sauvegarde du nouvel emploi du temps...');
     
     // a. Supprimer les anciennes entrées de l'emploi du temps pour cette section
     const { error: deleteError } = await supabase
@@ -432,30 +732,39 @@ export async function genererEmploiDuTemps(
     }
 
     // b. Insérer le nouveau planning
-    const { error: insertError } = await supabase.from('emplois_du_temps').insert(planning);
+    const { error: insertError } = await supabase.from('emplois_du_temps').insert(planningOptimise.planning);
     if (insertError) {
         setMessage(`Erreur lors de la sauvegarde du nouveau planning: ${insertError.message}`);
         return false;
     }
 
-    // c. Afficher le rapport final
-    const seancesPlacees = planning.length;
+    // --- Étape 7: Rapport final ---
+    setMessage('7/7 - Génération terminée !');
+
+    const seancesPlacees = planningOptimise.planning.length;
     const seancesTotales = seances.length;
+    const scoreFinal = calculerScorePlanning(planningOptimise);
     
-    let messageFinal = `Génération terminée ! ${seancesPlacees}/${seancesTotales} séances placées.`;
-    messageFinal += `\n\nLogique de placement:`;
+    let messageFinal = `🎯 Génération réussie avec algorithme avancé ! ${seancesPlacees}/${seancesTotales} séances placées.`;
+    messageFinal += `\n\n📊 Logique de placement:`;
     messageFinal += `\n• CM → Amphis (${amphis.length} disponibles)`;
     messageFinal += `\n• TD/TP → Salles normales (${sallesNormales.length} disponibles)`;
+    messageFinal += `\n\n🔧 Améliorations appliquées:`;
+    messageFinal += `\n• Tri par difficulté de placement`;
+    messageFinal += `\n• Algorithme de backtracking complet`;
+    messageFinal += `\n• Optimisation locale par échanges`;
+    messageFinal += `\n• Recherche tabou avancée`;
+    messageFinal += `\n• Gestion intelligente des contraintes`;
+    messageFinal += `\n\n🏆 Score de qualité: ${scoreFinal}`;
     
-    if (sessionsNonPlacees.length > 0) {
-        messageFinal += `\n\nSessions non placées:\n${sessionsNonPlacees.join('\n')}`;
+    if (seancesPlacees < seancesTotales) {
+        const sessionsNonPlacees = seancesTotales - seancesPlacees;
+        messageFinal += `\n\n⚠️ ${sessionsNonPlacees} séance(s) non placée(s)`;
         messageFinal += '\n\nCauses possibles:';
-        messageFinal += '\n• Conflits d\'enseignants';
-        messageFinal += '\n• Salles insuffisantes ou occupées';
-        messageFinal += '\n• Créneaux horaires saturés';
-        messageFinal += '\n• Contraintes de partage de salles';
-        messageFinal += '\n• Manque d\'amphis pour les CM';
-        messageFinal += '\n• Manque de salles normales pour les TD/TP';
+        messageFinal += '\n• Contraintes trop strictes';
+        messageFinal += '\n• Manque de créneaux disponibles';
+        messageFinal += '\n• Conflits d\'enseignants irréconciliables';
+        messageFinal += '\n• Capacités de salles insuffisantes';
     }
     
     setMessage(messageFinal);
@@ -527,4 +836,316 @@ export async function verifierCohérence(): Promise<string> {
     }
     
     return rapport;
+}
+
+// Fonction d'optimisation avancée avec recherche tabou
+function optimisationAvancee(
+    state: PlacementState,
+    groupes: any[],
+    amphis: any[],
+    sallesNormales: any[],
+    jours: string[],
+    creneaux: Creneau[]
+): PlacementState {
+    console.log('🚀 Début de l\'optimisation avancée...');
+    
+    let meilleurState = { ...state };
+    let meilleurScore = calculerScorePlanning(state);
+    let iterations = 0;
+    const maxIterations = 200;
+    const tabouList: string[] = [];
+    const tabouSize = 10;
+    
+    while (iterations < maxIterations) {
+        iterations++;
+        
+        // Générer des voisins
+        const voisins = genererVoisins(state, groupes, amphis, sallesNormales, jours, creneaux);
+        
+        let meilleurVoisin = null;
+        let meilleurScoreVoisin = -Infinity;
+        
+        for (const voisin of voisins) {
+            const scoreVoisin = calculerScorePlanning(voisin);
+            const hashVoisin = JSON.stringify(voisin.planning);
+            
+            // Vérifier si le voisin n'est pas dans la liste tabou
+            if (!tabouList.includes(hashVoisin) && scoreVoisin > meilleurScoreVoisin) {
+                meilleurVoisin = voisin;
+                meilleurScoreVoisin = scoreVoisin;
+            }
+        }
+        
+        if (meilleurVoisin) {
+            state = meilleurVoisin;
+            const hashState = JSON.stringify(state.planning);
+            tabouList.push(hashState);
+            
+            // Maintenir la taille de la liste tabou
+            if (tabouList.length > tabouSize) {
+                tabouList.shift();
+            }
+            
+            // Mettre à jour le meilleur état global
+            if (meilleurScoreVoisin > meilleurScore) {
+                meilleurState = { ...state };
+                meilleurScore = meilleurScoreVoisin;
+                console.log(`🏆 Nouveau meilleur score: ${meilleurScore}`);
+            }
+        } else {
+            // Aucun voisin valide trouvé, arrêter
+            break;
+        }
+    }
+    
+    console.log(`🚀 Optimisation avancée terminée après ${iterations} itérations`);
+    return meilleurState;
+}
+
+// Fonction pour générer des voisins (solutions proches)
+function genererVoisins(
+    state: PlacementState,
+    groupes: any[],
+    amphis: any[],
+    sallesNormales: any[],
+    jours: string[],
+    creneaux: Creneau[]
+): PlacementState[] {
+    const voisins: PlacementState[] = [];
+    
+    // Générer des échanges simples
+    for (let i = 0; i < Math.min(state.planning.length, 5); i++) {
+        for (let j = i + 1; j < Math.min(state.planning.length, 5); j++) {
+            const placement1 = state.planning[i];
+            const placement2 = state.planning[j];
+            
+            if (peutEchangerPlacements(placement1, placement2, state, groupes, amphis, sallesNormales)) {
+                const voisin = echangerPlacements(placement1, placement2, state);
+                if (voisin) {
+                    voisins.push(voisin);
+                }
+            }
+        }
+    }
+    
+    // Générer des déplacements simples
+    for (let i = 0; i < Math.min(state.planning.length, 3); i++) {
+        const placement = state.planning[i];
+        
+        // Essayer de déplacer vers un autre créneau
+        for (const jour of jours) {
+            for (const creneau of creneaux) {
+                if (jour !== placement.jour || creneau.debut !== placement.heure_debut) {
+                    const sallesAppropriees = [...amphis, ...sallesNormales];
+                    
+                    for (const salle of sallesAppropriees) {
+                        // Créer un état temporaire sans ce placement
+                        const tempState = {
+                            planning: state.planning.filter(p => p.seance_id !== placement.seance_id),
+                            planningGroupes: { ...state.planningGroupes },
+                            planningEnseignants: { ...state.planningEnseignants },
+                            planningSalles: { ...state.planningSalles }
+                        };
+                        
+                        // Vérifier si le nouveau placement est possible
+                        const seance = { id: placement.seance_id } as any;
+                        if (peutPlacerSeance(seance, jour, creneau, salle.id, tempState, groupes, amphis, sallesNormales)) {
+                            const nouveauPlacement = {
+                                seance_id: placement.seance_id,
+                                jour: jour,
+                                heure_debut: creneau.debut,
+                                heure_fin: creneau.fin,
+                                salle_id: salle.id
+                            };
+                            
+                            const voisin = {
+                                planning: [...tempState.planning, nouveauPlacement],
+                                planningGroupes: tempState.planningGroupes,
+                                planningEnseignants: tempState.planningEnseignants,
+                                planningSalles: tempState.planningSalles
+                            };
+                            
+                            voisins.push(voisin);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    return voisins.slice(0, 10); // Limiter le nombre de voisins
+}
+
+// Fonction d'export pour tester l'algorithme
+export async function testerAlgorithmeAvance(
+    sectionId: string,
+    setMessage: (msg: string) => void,
+    niveau?: string
+): Promise<{ success: boolean; details: string; planning: any[] }> {
+    console.log('🧪 Test de l\'algorithme avancé...');
+    
+    try {
+        // Récupérer les données de base
+        const { data: groupes } = await supabase
+            .from('groupes')
+            .select('id, nom, niveau, specialite, section_id')
+            .eq('section_id', sectionId)
+            .order('nom');
+
+        if (!groupes || groupes.length === 0) {
+            return { success: false, details: 'Aucun groupe trouvé', planning: [] };
+        }
+
+        const groupeIds = groupes.map(g => g.id);
+        let coursIds: string[] = [];
+        
+        if (niveau) {
+            const { data: cours } = await supabase
+                .from('cours')
+                .select('id, nom')
+                .eq('niveau', niveau);
+            coursIds = cours?.map(c => c.id) || [];
+        }
+
+        let seancesQuery = supabase
+            .from('seances')
+            .select('*, cours(nom, niveau), types_seances(nom), enseignants(nom)')
+            .in('groupe_id', groupeIds);
+
+        if (niveau && coursIds.length > 0) {
+            seancesQuery = seancesQuery.in('cours_id', coursIds);
+        }
+
+        const { data: seances } = await seancesQuery;
+        if (!seances || seances.length === 0) {
+            return { success: false, details: 'Aucune séance trouvée', planning: [] };
+        }
+
+        const { data: salles } = await supabase.from('salles').select('id, nom, capacite');
+        if (!salles || salles.length === 0) {
+            return { success: false, details: 'Aucune salle trouvée', planning: [] };
+        }
+
+        // Séparer les salles
+        const amphis = salles.filter(s => 
+            s.nom.toLowerCase().includes('amphi') || 
+            s.nom.toLowerCase().includes('amphithéâtre') ||
+            s.nom.toLowerCase().includes('auditorium') ||
+            (s.capacite && s.capacite >= 100)
+        );
+        const sallesNormales = salles.filter(s => 
+            !s.nom.toLowerCase().includes('amphi') && 
+            !s.nom.toLowerCase().includes('amphithéâtre') &&
+            !s.nom.toLowerCase().includes('auditorium') &&
+            (!s.capacite || s.capacite < 100)
+        );
+
+        // Organiser les séances
+        const seancesCM = seances.filter(s => (s.types_seances as { nom: string })?.nom?.toLowerCase().includes('cm'));
+        const seancesTD = seances.filter(s => (s.types_seances as { nom: string })?.nom?.toLowerCase().includes('td'));
+        const seancesTP = seances.filter(s => (s.types_seances as { nom: string })?.nom?.toLowerCase().includes('tp'));
+
+        const toutesSeances = [...seancesCM, ...seancesTD, ...seancesTP];
+        const seancesTriees = toutesSeances.sort((a, b) => {
+            const difficulteA = calculerDifficultePlacement(a, groupes, salles);
+            const difficulteB = calculerDifficultePlacement(b, groupes, salles);
+            return difficulteB - difficulteA;
+        });
+
+        // Configuration
+        const jours = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi'];
+        const creneaux: Creneau[] = [
+            { debut: '08:00:00', fin: '09:30:00' },
+            { debut: '09:30:00', fin: '11:00:00' },
+            { debut: '11:00:00', fin: '12:30:00' },
+            { debut: '13:30:00', fin: '15:00:00' },
+            { debut: '15:00:00', fin: '16:30:00' }
+        ];
+
+        const initialState: PlacementState = {
+            planning: [],
+            planningGroupes: {},
+            planningEnseignants: {},
+            planningSalles: {}
+        };
+
+        // Test du backtracking
+        console.log('🧪 Test du backtracking...');
+        const resultatBacktracking = backtrackingPlacement(
+            seancesTriees,
+            initialState,
+            groupes,
+            amphis,
+            sallesNormales,
+            jours,
+            creneaux,
+            10000
+        );
+
+        if (!resultatBacktracking) {
+            return { success: false, details: 'Backtracking échoué', planning: [] };
+        }
+
+        // Test de l'amélioration locale
+        console.log('🧪 Test de l\'amélioration locale...');
+        const resultatAmelioration = ameliorationLocale(
+            resultatBacktracking,
+            groupes,
+            amphis,
+            sallesNormales,
+            jours,
+            creneaux
+        );
+
+        // Test de l'optimisation avancée
+        console.log('🧪 Test de l\'optimisation avancée...');
+        const resultatOptimisation = optimisationAvancee(
+            resultatAmelioration,
+            groupes,
+            amphis,
+            sallesNormales,
+            jours,
+            creneaux
+        );
+
+        // Calculer les scores
+        const scoreBacktracking = calculerScorePlanning(resultatBacktracking);
+        const scoreAmelioration = calculerScorePlanning(resultatAmelioration);
+        const scoreOptimisation = calculerScorePlanning(resultatOptimisation);
+
+        const details = `
+🧪 RÉSULTATS DU TEST ALGORITHME AVANCÉ
+
+📊 Données d'entrée:
+• Groupes: ${groupes.length}
+• Séances: ${seances.length} (${seancesCM.length} CM, ${seancesTD.length} TD, ${seancesTP.length} TP)
+• Salles: ${salles.length} (${amphis.length} amphis, ${sallesNormales.length} normales)
+
+🎯 Résultats de placement:
+• Backtracking: ${resultatBacktracking.planning.length}/${seances.length} séances
+• Après amélioration locale: ${resultatAmelioration.planning.length}/${seances.length} séances
+• Après optimisation avancée: ${resultatOptimisation.planning.length}/${seances.length} séances
+
+🏆 Scores de qualité:
+• Backtracking: ${scoreBacktracking}
+• Amélioration locale: ${scoreAmelioration} (${scoreAmelioration > scoreBacktracking ? '+' : ''}${scoreAmelioration - scoreBacktracking})
+• Optimisation avancée: ${scoreOptimisation} (${scoreOptimisation > scoreAmelioration ? '+' : ''}${scoreOptimisation - scoreAmelioration})
+
+✅ Amélioration totale: ${scoreOptimisation - scoreBacktracking} points
+        `;
+
+        return {
+            success: true,
+            details: details,
+            planning: resultatOptimisation.planning
+        };
+
+    } catch (error) {
+        console.error('Erreur lors du test:', error);
+        return {
+            success: false,
+            details: `Erreur: ${error}`,
+            planning: []
+        };
+    }
 }

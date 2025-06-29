@@ -1,9 +1,10 @@
 'use client'
 import { supabase } from '@/src/lib/supabaseClient'
 import { useState, useEffect } from 'react'
-import { genererEmploiDuTemps, diagnostiquerDonneesSimple, verifierCohérence } from '@/src/lib/generation'
+import { genererEmploiDuTemps, diagnostiquerDonneesSimple, verifierCohérence, testerAlgorithmeAvance } from '@/src/lib/generation'
 import Header from '@/src/components/Header'
 import AuthGuard from '@/src/components/AuthGuard'
+import { FaCogs } from 'react-icons/fa'
 
 interface Section {
     id: string;
@@ -189,6 +190,38 @@ export default function GenerationPage() {
         setLoading(false)
     }
 
+    const testerAlgorithmeLocale = async () => {
+        if (!selectedSection) {
+            setMessage('Veuillez sélectionner une section d\'abord.');
+            return;
+        }
+
+        setLoading(true)
+        setMessage('🧪 Test de l\'algorithme avancé en cours...')
+        setDiagnostic('')
+        
+        try {
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Timeout: Le test a pris trop de temps')), 30000)
+            );
+            
+            const testPromise = testerAlgorithmeAvance(selectedSection, setMessage, selectedNiveau);
+            const resultat = await Promise.race([testPromise, timeoutPromise]) as any;
+            
+            if (resultat.success) {
+                setDiagnostic(resultat.details);
+                setMessage(`✅ Test réussi ! ${resultat.planning.length} séances placées.`);
+            } else {
+                setDiagnostic(`❌ Test échoué: ${resultat.details}`);
+                setMessage('❌ Le test de l\'algorithme a échoué.');
+            }
+        } catch (error) {
+            setDiagnostic(`❌ Erreur lors du test: ${error}\n\nEssayez de rafraîchir la page ou vérifiez votre connexion.`);
+            setMessage('❌ Erreur lors du test de l\'algorithme.');
+        }
+        setLoading(false)
+    }
+
     return (
         <AuthGuard>
             <div className="min-h-screen bg-gradient-to-br from-gray-50 to-indigo-100 p-4 sm:p-6 lg:p-8">
@@ -291,10 +324,19 @@ export default function GenerationPage() {
                         <div className="flex gap-4 mb-4 flex-wrap">
                             <button
                                 onClick={verifierCohérenceLocale}
-                                className="bg-red-600 text-white px-6 py-2 rounded hover:bg-red-700 disabled:opacity-50"
                                 disabled={loading}
+                                className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                             >
-                                {loading ? 'Vérification...' : 'Vérifier la cohérence'}
+                                <FaCogs className="text-lg" />
+                                Vérifier la cohérence
+                            </button>
+                            <button
+                                onClick={testerAlgorithmeLocale}
+                                disabled={loading || !selectedSection}
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                            >
+                                <FaCogs className="text-lg" />
+                                🧪 Tester l'algorithme avancé
                             </button>
                             <button
                                 onClick={lancerDiagnostic}

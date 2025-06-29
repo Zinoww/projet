@@ -347,7 +347,7 @@ export default function SeancesPage() {
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Cours</label>
                             <select value={editingSeanceForm.cours_id} onChange={e => setEditingSeanceForm(editingSeanceForm ? { ...editingSeanceForm, cours_id: e.target.value } : null)} className="w-full p-2 border rounded" disabled={!editingSelectedNiveau}>
-                                <option value="">Sélectionner un cours</option>
+                            <option value="">Sélectionner un cours</option>
                                 {editingSeance.cours && (
                                     <option value={editingSeance.cours_id} className="font-semibold bg-gray-100">
                                         {editingSeance.cours.nom} (actuel)
@@ -358,13 +358,13 @@ export default function SeancesPage() {
                                         {c.nom}
                                     </option>
                                 ))}
-                            </select>
+                        </select>
                         </div>
                         
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
                             <select value={editingSeanceForm.type_id} onChange={e => setEditingSeanceForm(editingSeanceForm ? { ...editingSeanceForm, type_id: e.target.value } : null)} className="w-full p-2 border rounded">
-                                <option value="">Sélectionner un type</option>
+                            <option value="">Sélectionner un type</option>
                                 {editingSeance.types_seances && (
                                     <option value={editingSeance.type_id} className="font-semibold bg-gray-100">
                                         {editingSeance.types_seances.nom} (actuel)
@@ -374,14 +374,14 @@ export default function SeancesPage() {
                                     <option key={t.id} value={t.id}>
                                         {t.nom}
                                     </option>
-                                ))}
-                            </select>
+                            ))}
+                        </select>
                         </div>
                         
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Groupe</label>
                             <select value={editingSeanceForm.groupe_id} onChange={e => setEditingSeanceForm(editingSeanceForm ? { ...editingSeanceForm, groupe_id: e.target.value } : null)} className="w-full p-2 border rounded">
-                                <option value="">Sélectionner un groupe</option>
+                            <option value="">Sélectionner un groupe</option>
                                 {editingSeance.groupes && (
                                     <option value={editingSeance.groupe_id} className="font-semibold bg-gray-100">
                                         {editingSeance.groupes.nom} (actuel)
@@ -392,13 +392,13 @@ export default function SeancesPage() {
                                         {g.nom}
                                     </option>
                                 ))}
-                            </select>
+                        </select>
                         </div>
                         
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Enseignant</label>
-                            <select value={editingSeanceForm.enseignant_id} onChange={e => setEditingSeanceForm({...editingSeanceForm, enseignant_id: e.target.value})} className="w-full p-2 border rounded">
-                                <option value="">Sélectionner un enseignant</option>
+                         <select value={editingSeanceForm.enseignant_id} onChange={e => setEditingSeanceForm({...editingSeanceForm, enseignant_id: e.target.value})} className="w-full p-2 border rounded">
+                            <option value="">Sélectionner un enseignant</option>
                                 {editingSeance.enseignants ? (
                                     <option value={editingSeance.enseignant_id || ''} className="font-semibold bg-gray-100">
                                         {editingSeance.enseignants.nom} (actuel)
@@ -413,7 +413,7 @@ export default function SeancesPage() {
                                         {en.nom}
                                     </option>
                                 ))}
-                            </select>
+                        </select>
                         </div>
                         
                         <div>
@@ -434,110 +434,110 @@ export default function SeancesPage() {
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-indigo-100 p-4 sm:p-6 lg:p-8">
             <div className="max-w-7xl mx-auto">
-                <div className="flex justify-between items-center mb-8">
-                    <div className="flex items-center">
-                        <FaClipboardList className="text-3xl text-teal-500 mr-4" />
-                        <h1 className="text-4xl font-bold text-gray-800">Gestion des Séances</h1>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <input
-                            type="file"
-                            accept=".xlsx, .xls"
-                            onChange={handleImportExcel}
-                            className="hidden"
-                            id="excel-upload"
-                        />
-                        <label
-                            htmlFor="excel-upload"
-                            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer"
-                        >
-                            <FaFileExcel />
-                            Importer
-                        </label>
-                        <Link href="/" className="flex items-center text-indigo-600 hover:text-indigo-800">
-                            <FaArrowLeft className="mr-2"/>
-                            Retour &agrave; l&#39;accueil
-                        </Link>
-                    </div>
+            <div className="flex justify-between items-center mb-8">
+                <div className="flex items-center">
+                    <FaClipboardList className="text-3xl text-teal-500 mr-4" />
+                    <h1 className="text-4xl font-bold text-gray-800">Gestion des Séances</h1>
                 </div>
+                <div className="flex items-center gap-4">
+                    <input
+                        type="file"
+                        accept=".xlsx, .xls"
+                        onChange={handleImportExcel}
+                        className="hidden"
+                        id="excel-upload"
+                    />
+                    <label
+                        htmlFor="excel-upload"
+                        className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer"
+                    >
+                        <FaFileExcel />
+                        Importer
+                    </label>
+                    <Link href="/" className="flex items-center text-indigo-600 hover:text-indigo-800">
+                        <FaArrowLeft className="mr-2"/>
+                            Retour &agrave; l&#39;accueil
+                    </Link>
+                </div>
+            </div>
 
                 {error && <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded-lg"><p>{error}</p></div>}
                 {success && <div className="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-6 rounded-lg"><p>{success}</p></div>}
-                
-                {/* Formulaire d'ajout */}
+            
+            {/* Formulaire d'ajout */}
                 <div className="bg-white p-6 rounded-2xl shadow-xl mb-8 border border-indigo-100">
-                    <h2 className="text-2xl font-semibold text-gray-700 mb-4">Ajouter une séance</h2>
-                    <form onSubmit={handleAddSeance} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {/* Sélection du niveau */}
+                <h2 className="text-2xl font-semibold text-gray-700 mb-4">Ajouter une séance</h2>
+                <form onSubmit={handleAddSeance} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {/* Sélection du niveau */}
                         <select value={selectedNiveau} onChange={e => { setSelectedNiveau(e.target.value); setNewSeance({ ...newSeance, cours_id: '', groupe_id: '', type_id: '' }) }} className="w-full p-2 border rounded bg-gray-50">
-                            <option value="">Sélectionner un niveau</option>
+                        <option value="">Sélectionner un niveau</option>
                             {[...new Set(cours.map(c => c.niveau).filter(Boolean))].map(niv => (
-                                <option key={niv as string} value={niv as string}>{niv}</option>
-                            ))}
-                        </select>
+                            <option key={niv as string} value={niv as string}>{niv}</option>
+                        ))}
+                    </select>
                         {/* Liste des cours filtrée par niveau */}
                         <select required value={newSeance.cours_id} onChange={e => setNewSeance({...newSeance, cours_id: e.target.value})} className="w-full p-2 border rounded bg-gray-50" disabled={!selectedNiveau}>
-                            <option value="">Sélectionner un cours</option>
+                        <option value="">Sélectionner un cours</option>
                             {cours.filter(c => c.niveau === selectedNiveau).map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
-                        </select>
+                    </select>
                         {/* Liste des types */}
-                        <select required value={newSeance.type_id} onChange={e => setNewSeance({...newSeance, type_id: e.target.value})} className="w-full p-2 border rounded bg-gray-50">
-                            <option value="">Sélectionner un type</option>
-                            {types.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}
-                        </select>
+                    <select required value={newSeance.type_id} onChange={e => setNewSeance({...newSeance, type_id: e.target.value})} className="w-full p-2 border rounded bg-gray-50">
+                        <option value="">Sélectionner un type</option>
+                        {types.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}
+                    </select>
                         {/* Liste des groupes */}
                         <select required value={newSeance.groupe_id} onChange={e => setNewSeance({...newSeance, groupe_id: e.target.value})} className="w-full p-2 border rounded bg-gray-50">
                             <option value="">Sélectionner un groupe</option>
                             {groupes.map(g => <option key={g.id} value={g.id}>{g.nom}</option>)}
                         </select>
                         {/* Les autres champs (cours, enseignant, durée) */}
-                        <select value={newSeance.enseignant_id} onChange={e => setNewSeance({...newSeance, enseignant_id: e.target.value})} className="w-full p-2 border rounded bg-gray-50">
-                            <option value="">Sélectionner un enseignant</option>
-                            {enseignants.map(e => <option key={e.id} value={e.id}>{e.nom}</option>)}
-                        </select>
-                        <input type="number" required value={newSeance.duree_minutes} onChange={e => setNewSeance({...newSeance, duree_minutes: e.target.value})} className="w-full p-2 border rounded bg-gray-50" placeholder="Durée (min)"/>
-                        <button type="submit" className="bg-teal-600 text-white p-2 rounded hover:bg-teal-700 flex items-center justify-center">
-                            <FaPlus className="mr-2"/> Ajouter Séance
-                        </button>
-                    </form>
-                </div>
+                    <select value={newSeance.enseignant_id} onChange={e => setNewSeance({...newSeance, enseignant_id: e.target.value})} className="w-full p-2 border rounded bg-gray-50">
+                        <option value="">Sélectionner un enseignant</option>
+                        {enseignants.map(e => <option key={e.id} value={e.id}>{e.nom}</option>)}
+                    </select>
+                    <input type="number" required value={newSeance.duree_minutes} onChange={e => setNewSeance({...newSeance, duree_minutes: e.target.value})} className="w-full p-2 border rounded bg-gray-50" placeholder="Durée (min)"/>
+                    <button type="submit" className="bg-teal-600 text-white p-2 rounded hover:bg-teal-700 flex items-center justify-center">
+                        <FaPlus className="mr-2"/> Ajouter Séance
+                    </button>
+                </form>
+            </div>
 
-                {/* Liste des séances */}
+            {/* Liste des séances */}
                 <div className="bg-white shadow-xl rounded-2xl overflow-hidden border border-indigo-100">
-                    {loading ? <p className="p-4 text-center">Chargement...</p> : (
-                        <table className="min-w-full leading-normal">
-                            <thead>
-                                <tr>
-                                    <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Cours</th>
-                                    <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Type</th>
-                                    <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Groupe</th>
-                                    <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Enseignant</th>
-                                    <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Durée</th>
-                                    <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
+                {loading ? <p className="p-4 text-center">Chargement...</p> : (
+                    <table className="min-w-full leading-normal">
+                        <thead>
+                            <tr>
+                                <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Cours</th>
+                                <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Type</th>
+                                <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Groupe</th>
+                                <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Enseignant</th>
+                                <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Durée</th>
+                                <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {seances.map(s => (
+                                <tr key={s.id} className="hover:bg-gray-50">
+                                    <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.cours?.nom ?? <span className="text-gray-400">N/A</span>}</td>
+                                    <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.types_seances?.nom ?? <span className="text-gray-400">N/A</span>}</td>
+                                    <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.groupes?.nom ?? <span className="text-gray-400">N/A</span>}</td>
+                                    <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.enseignants?.nom || <span className="text-gray-400">N/A</span>}</td>
+                                    <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.duree_minutes} min</td>
+                                    <td className="px-5 py-4 border-b border-gray-200 text-sm text-center">
+                                        <div className="flex justify-center items-center space-x-3">
+                                            <button onClick={() => startEditing(s)} className="text-yellow-600 hover:text-yellow-800"><FaPencilAlt /></button>
+                                            <button onClick={() => handleDeleteSeance(s.id)} className="text-red-600 hover:text-red-800"><FaTrash /></button>
+                                        </div>
+                                    </td>
                                 </tr>
-                            </thead>
-                            <tbody>
-                                {seances.map(s => (
-                                    <tr key={s.id} className="hover:bg-gray-50">
-                                        <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.cours?.nom ?? <span className="text-gray-400">N/A</span>}</td>
-                                        <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.types_seances?.nom ?? <span className="text-gray-400">N/A</span>}</td>
-                                        <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.groupes?.nom ?? <span className="text-gray-400">N/A</span>}</td>
-                                        <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.enseignants?.nom || <span className="text-gray-400">N/A</span>}</td>
-                                        <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.duree_minutes} min</td>
-                                        <td className="px-5 py-4 border-b border-gray-200 text-sm text-center">
-                                            <div className="flex justify-center items-center space-x-3">
-                                                <button onClick={() => startEditing(s)} className="text-yellow-600 hover:text-yellow-800"><FaPencilAlt /></button>
-                                                <button onClick={() => handleDeleteSeance(s.id)} className="text-red-600 hover:text-red-800"><FaTrash /></button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    )}
-                </div>
+                            ))}
+                        </tbody>
+                    </table>
+                )}
+            </div>
 
-                {renderEditForm()}
+            {renderEditForm()}
             </div>
         </div>
     )
