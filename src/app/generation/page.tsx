@@ -6,10 +6,9 @@ import Header from '@/src/components/Header'
 import AuthGuard from '@/src/components/AuthGuard'
 import { FaCogs } from 'react-icons/fa'
 
-interface Section {
-    id: string;
-    nom: string;
-}
+interface Filiere { id: string; nom: string }
+interface Section { id: string; nom: string }
+interface Groupe { id: string; nom: string }
 
 export default function GenerationPage() {
     const [loading, setLoading] = useState(false)
@@ -17,119 +16,130 @@ export default function GenerationPage() {
     const [diagnostic, setDiagnostic] = useState('')
     
     // États pour la hiérarchie de sélection
-    const [niveaux, setNiveaux] = useState<string[]>([])
-    const [specialites, setSpecialites] = useState<string[]>([])
+    const [filieres, setFilieres] = useState<Filiere[]>([])
+    const [promotions, setPromotions] = useState<string[]>([])
     const [sections, setSections] = useState<Section[]>([])
+    const [groupes, setGroupes] = useState<Groupe[]>([])
     
     // États pour les sélections
-    const [selectedNiveau, setSelectedNiveau] = useState<string>('')
-    const [selectedSpecialite, setSelectedSpecialite] = useState<string>('')
-    const [selectedSection, setSelectedSection] = useState<string>('')
+    const [selectedFiliere, setSelectedFiliere] = useState('')
+    const [selectedPromotion, setSelectedPromotion] = useState('')
+    const [selectedSection, setSelectedSection] = useState('')
+    const [selectedGroupe, setSelectedGroupe] = useState('')
 
-    // Charger les données initiales au montage du composant
+    // Charger les filières
     useEffect(() => {
-        chargerDonneesInitiales()
+        async function loadFilieres() {
+            setLoading(true)
+            const { data, error } = await supabase.from('filieres').select('id, nom').order('nom')
+            if (error) console.error('Error loading filieres:', error)
+            else setFilieres(data || [])
+            setLoading(false)
+        }
+        loadFilieres()
     }, [])
 
-    // Charger les niveaux disponibles
+    // Charger les promotions quand la filière change
     useEffect(() => {
-        if (selectedNiveau) {
-            chargerSpecialites(selectedNiveau)
-        } else {
-            setSpecialites([])
-            setSelectedSpecialite('')
+        if (!selectedFiliere) {
+            setPromotions([]); return;
         }
-    }, [selectedNiveau])
+        async function loadPromotions() {
+            setLoading(true)
+            const { data: sectionsInFiliere, error: sectionsError } = await supabase
+                .from('sections')
+                .select('id')
+                .eq('filiere_id', selectedFiliere)
 
-    // Charger les sections disponibles
-    useEffect(() => {
-        if (selectedSpecialite) {
-            chargerSections(selectedNiveau, selectedSpecialite)
-        } else {
-            setSections([])
-            setSelectedSection('')
-        }
-    }, [selectedSpecialite, selectedNiveau])
-
-    const chargerDonneesInitiales = async () => {
-        try {
-            // Récupérer tous les niveaux distincts des cours
-            const { data: coursData, error } = await supabase
-                .from('cours')
-                .select('niveau')
-                .not('niveau', 'is', null)
-            
-            if (error) {
-                console.error('Erreur lors du chargement des niveaux:', error)
-                return
+            if (sectionsError || !sectionsInFiliere || sectionsInFiliere.length === 0) {
+                setPromotions([]); setLoading(false); return;
             }
 
-            const niveauxUniques = [...new Set(coursData.map(c => c.niveau).filter(Boolean))]
-            setNiveaux(niveauxUniques.sort())
-        } catch (error) {
-            console.error('Erreur lors du chargement initial:', error)
-        }
-    }
-
-    const chargerSpecialites = async (niveau: string) => {
-        try {
-            // Temporairement, utiliser les groupes en attendant que les cours aient des spécialités
+            const sectionIds = sectionsInFiliere.map(s => s.id)
+            
             const { data, error } = await supabase
                 .from('groupes')
-                .select('specialite')
-                .eq('niveau', niveau)
-                .not('specialite', 'is', null)
-            
-            if (error) {
-                console.error('Erreur lors du chargement des spécialités:', error)
-                return
+                .select('niveau')
+                .in('section_id', sectionIds)
+                .not('niveau', 'is', null)
+
+            if (error) setPromotions([])
+            else {
+                const promotionsUniques = [...new Set(data.map(g => g.niveau).filter(Boolean) as string[])]
+                setPromotions(promotionsUniques.sort())
+            }
+            setLoading(false)
+        }
+        loadPromotions()
+    }, [selectedFiliere])
+
+    // Charger les sections quand la promotion change
+    useEffect(() => {
+        if (!selectedFiliere || !selectedPromotion) {
+            setSections([]); return;
+        }
+        async function loadSections() {
+            setLoading(true)
+            const { data: sectionsInFiliere, error: sectionsError } = await supabase
+                .from('sections')
+                .select('id')
+                .eq('filiere_id', selectedFiliere)
+
+            if (sectionsError || !sectionsInFiliere || sectionsInFiliere.length === 0) {
+                setSections([]); setLoading(false); return;
             }
 
-            const specialitesUniques = [...new Set(data.map(g => g.specialite).filter(Boolean))]
-            setSpecialites(specialitesUniques.sort())
-        } catch (error) {
-            console.error('Erreur lors du chargement des spécialités:', error)
-        }
-    }
+            const sectionIdsInFiliere = sectionsInFiliere.map(s => s.id)
 
-    const chargerSections = async (niveau: string, specialite: string) => {
-        try {
-            // Temporairement, utiliser les groupes en attendant que les cours aient des spécialités
-            const { data: groupesData, error: groupesError } = await supabase
+            const { data: groupesWithNiveau, error: groupesError } = await supabase
                 .from('groupes')
                 .select('section_id')
-                .eq('niveau', niveau)
-                .eq('specialite', specialite)
-            
-            if (groupesError) {
-                console.error('Erreur lors du chargement des groupes:', groupesError)
-                return
-            }
+                .in('section_id', sectionIdsInFiliere)
+                .eq('niveau', selectedPromotion)
 
-            const sectionIds = [...new Set(groupesData.map(g => g.section_id))]
+            if (groupesError || !groupesWithNiveau || groupesWithNiveau.length === 0) {
+                setSections([]); setLoading(false); return;
+            }
             
-            if (sectionIds.length === 0) {
+            const relevantSectionIds = [...new Set(groupesWithNiveau.map(g => g.section_id).filter(Boolean))]
+
+            if(relevantSectionIds.length > 0) {
+                const { data: finalSections, error: finalSectionsError } = await supabase
+                    .from('sections')
+                    .select('id, nom')
+                    .in('id', relevantSectionIds)
+                    .order('nom')
+
+                if (finalSectionsError) setSections([])
+                else setSections(finalSections || [])
+            } else {
                 setSections([])
-                return
             }
+            setLoading(false)
+        }
+        loadSections()
+    }, [selectedFiliere, selectedPromotion])
 
-            // Récupérer les détails des sections
-            const { data: sectionsData, error: sectionsError } = await supabase
-                .from('sections')
+    // Charger les groupes quand la section change
+    useEffect(() => {
+        if (!selectedSection || !selectedPromotion) {
+            setGroupes([]); return;
+        }
+        async function loadGroupes() {
+            setLoading(true)
+            const { data, error } = await supabase
+                .from('groupes')
                 .select('id, nom')
-                .in('id', sectionIds)
+                .eq('section_id', selectedSection)
+                .eq('niveau', selectedPromotion)
                 .order('nom')
             
-            if (sectionsError) {
-                console.error('Erreur lors du chargement des sections:', sectionsError)
-                return
-            }
-
-            setSections(sectionsData || [])
-        } catch (error) {
-            console.error('Erreur lors du chargement des sections:', error)
+            if (error) setGroupes([])
+            else setGroupes(data || [])
+            setLoading(false)
         }
-    }
+        loadGroupes()
+    }, [selectedSection, selectedPromotion])
 
     const lancerGeneration = async () => {
         if (!selectedSection) {
@@ -141,7 +151,7 @@ export default function GenerationPage() {
         setMessage('')
         setDiagnostic('')
         
-        const success = await genererEmploiDuTemps(selectedSection, setMessage)
+        const success = await genererEmploiDuTemps(selectedSection, setMessage, selectedPromotion)
         
         if (success) {
             setMessage('Génération terminée avec succès !')
@@ -205,7 +215,7 @@ export default function GenerationPage() {
                 setTimeout(() => reject(new Error('Timeout: Le test a pris trop de temps')), 30000)
             );
             
-            const testPromise = testerAlgorithmeAvance(selectedSection, setMessage, selectedNiveau);
+            const testPromise = testerAlgorithmeAvance(selectedSection, setMessage, selectedPromotion);
             const resultat = await Promise.race([testPromise, timeoutPromise]) as any;
             
             if (resultat.success) {
@@ -231,52 +241,53 @@ export default function GenerationPage() {
                     <div className="bg-white p-6 rounded-2xl shadow-xl mb-8 border border-indigo-100">
                         <h2 className="text-lg font-semibold mb-4 text-gray-800">Sélection hiérarchique</h2>
                         
-                        {/* Sélection en cascade */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                            {/* Niveau */}
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                            {/* Filière */}
                             <div>
-                                <label htmlFor="niveau" className="block text-sm font-medium text-gray-700 mb-2">
-                                    Niveau :
+                                <label htmlFor="filiere" className="block text-sm font-medium text-gray-700 mb-2">
+                                    Filière :
                                 </label>
                                 <select
-                                    id="niveau"
-                                    value={selectedNiveau}
+                                    id="filiere"
+                                    value={selectedFiliere}
                                     onChange={(e) => {
-                                        setSelectedNiveau(e.target.value)
-                                        setSelectedSpecialite('')
+                                        setSelectedFiliere(e.target.value)
+                                        setSelectedPromotion('')
                                         setSelectedSection('')
+                                        setSelectedGroupe('')
                                     }}
                                     className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                                     disabled={loading}
                                 >
-                                    <option value="">Sélectionner un niveau</option>
-                                    {niveaux.map((niveau) => (
-                                        <option key={niveau} value={niveau}>
-                                            {niveau}
+                                    <option value="">Sélectionner une filière</option>
+                                    {filieres.map((filiere) => (
+                                        <option key={filiere.id} value={filiere.id}>
+                                            {filiere.nom}
                                         </option>
                                     ))}
                                 </select>
                             </div>
 
-                            {/* Spécialité */}
+                            {/* Promotion */}
                             <div>
-                                <label htmlFor="specialite" className="block text-sm font-medium text-gray-700 mb-2">
-                                    Spécialité :
+                                <label htmlFor="promotion" className="block text-sm font-medium text-gray-700 mb-2">
+                                    Promotion (Niveau) :
                                 </label>
                                 <select
-                                    id="specialite"
-                                    value={selectedSpecialite}
+                                    id="promotion"
+                                    value={selectedPromotion}
                                     onChange={(e) => {
-                                        setSelectedSpecialite(e.target.value)
+                                        setSelectedPromotion(e.target.value)
                                         setSelectedSection('')
+                                        setSelectedGroupe('')
                                     }}
                                     className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                    disabled={loading || !selectedNiveau}
+                                    disabled={loading || !selectedFiliere}
                                 >
-                                    <option value="">Sélectionner une spécialité</option>
-                                    {specialites.map((specialite) => (
-                                        <option key={specialite} value={specialite}>
-                                            {specialite}
+                                    <option value="">Sélectionner une promotion</option>
+                                    {promotions.map((promotion) => (
+                                        <option key={promotion} value={promotion}>
+                                            {promotion}
                                         </option>
                                     ))}
                                 </select>
@@ -290,9 +301,12 @@ export default function GenerationPage() {
                                 <select
                                     id="section"
                                     value={selectedSection}
-                                    onChange={(e) => setSelectedSection(e.target.value)}
+                                    onChange={(e) => {
+                                        setSelectedSection(e.target.value)
+                                        setSelectedGroupe('')
+                                    }}
                                     className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                    disabled={loading || !selectedSpecialite}
+                                    disabled={loading || !selectedPromotion}
                                 >
                                     <option value="">Sélectionner une section</option>
                                     {sections.map((section) => (
@@ -302,22 +316,47 @@ export default function GenerationPage() {
                                     ))}
                                 </select>
                             </div>
+
+                            {/* Groupe */}
+                            <div>
+                                <label htmlFor="groupe" className="block text-sm font-medium text-gray-700 mb-2">
+                                    Groupe :
+                                </label>
+                                <select
+                                    id="groupe"
+                                    value={selectedGroupe}
+                                    onChange={(e) => setSelectedGroupe(e.target.value)}
+                                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    disabled={loading || !selectedSection}
+                                >
+                                    <option value="">Sélectionner un groupe</option>
+                                    {groupes.map((groupe) => (
+                                        <option key={groupe.id} value={groupe.id}>
+                                            {groupe.nom}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
 
-                        {/* Informations de sélection */}
                         {selectedSection && (
                             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                                <h3 className="font-semibold text-blue-800 mb-2">Section sélectionnée :</h3>
+                                <h3 className="font-semibold text-blue-800 mb-2">Sélection actuelle :</h3>
                                 <p className="text-blue-700">
-                                    <strong>Niveau :</strong> {selectedNiveau} | 
-                                    <strong> Spécialité :</strong> {selectedSpecialite} | 
-                                    <strong> Section :</strong> {sections.find(s => s.id === selectedSection)?.nom}
+                                    <strong>Filière :</strong> {
+                                        selectedFiliere ? 
+                                        (filieres.find(f => String(f.id) === String(selectedFiliere))?.nom || `ID: ${selectedFiliere}`) : 
+                                        ''
+                                    } |
+                                    <strong> Promotion :</strong> {selectedPromotion} | 
+                                    <strong> Section :</strong> {
+                                        selectedSection ? 
+                                        (sections.find(s => String(s.id) === String(selectedSection))?.nom || `ID: ${selectedSection}`) : 
+                                        ''
+                                    }
+                                    {selectedGroupe && ` | Groupe : ${groupes.find(g => String(g.id) === String(selectedGroupe))?.nom || `ID: ${selectedGroupe}`}`}
                                 </p>
-                                <p className="text-blue-600 text-sm mt-2">
-                                    💡 La génération créera un emploi du temps pour toute la section avec :
-                                    <br/>• CM : Tous les groupes ensemble
-                                    <br/>• TD/TP : Groupes séparés (partage de case possible)
-                                </p>
+
                             </div>
                         )}
 
@@ -343,11 +382,11 @@ export default function GenerationPage() {
                                 className="bg-yellow-600 text-white px-6 py-2 rounded hover:bg-yellow-700 disabled:opacity-50"
                                 disabled={loading || !selectedSection}
                             >
-                                {loading ? 'Diagnostic...' : 'Diagnostiquer (version simple)'}
+                                {loading ? 'Diagnostic...' : 'Diagnostiquer'}
                             </button>
                             <button
                                 onClick={lancerGeneration}
-                                className="bg-indigo-600 text-white px-6 py-2 rounded hover:bg-indigo-700 disabled:opacity-50"
+                                className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700 disabled:opacity-50"
                                 disabled={loading || !selectedSection}
                             >
                                 {loading ? 'Génération...' : 'Générer automatiquement'}
@@ -356,11 +395,11 @@ export default function GenerationPage() {
                         {message && (
                             <div className="mb-4 p-3 rounded-md text-sm">
                                 {message.includes('Erreur') || message.includes('échec') ? (
-                                    <div className="text-red-700 bg-red-100 border border-red-300">
+                                    <div className="text-red-700 bg-red-100 border border-red-300 p-3 rounded-md">
                                         {message}
                                     </div>
                                 ) : (
-                                    <div className="text-green-700 bg-green-100 border border-green-300">
+                                    <div className="text-green-700 bg-green-100 border border-green-300 p-3 rounded-md">
                                         {message}
                                     </div>
                                 )}
@@ -370,7 +409,7 @@ export default function GenerationPage() {
                     
                     {diagnostic && (
                         <div className="bg-white p-6 rounded-2xl shadow-xl border border-indigo-100">
-                            <h2 className="text-xl font-bold mb-4">Résultat du diagnostic</h2>
+                            <h2 className="text-xl font-bold mb-4">Résultat du diagnostic / test</h2>
                             <pre className="whitespace-pre-wrap text-sm bg-gray-50 p-4 rounded-lg overflow-auto max-h-96">
                                 {diagnostic}
                             </pre>

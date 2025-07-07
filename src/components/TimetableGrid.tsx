@@ -15,6 +15,7 @@ interface EventData {
     cours: { nom: string };
     enseignants: { nom: string };
     salles: { nom: string };
+    groupe: { nom: string };
 }
 
 interface TimetableGridProps {
@@ -56,10 +57,6 @@ const getTypeColor = (type: string) => {
 };
 
 export default function TimetableGrid({ events, currentDate, sectionName, niveau, dateDebut, dateFin }: TimetableGridProps) {
-    console.log('TimetableGrid events:', events);
-    if (events.length > 0) {
-      console.log('TimetableGrid first event detail:', events[0]);
-    }
     // Ajoute une séance de test si events est vide
     const testEvent = {
         id: 'test',
@@ -69,7 +66,8 @@ export default function TimetableGrid({ events, currentDate, sectionName, niveau
         type: 'CM',
         cours: { nom: 'Test' },
         enseignants: { nom: 'Professeur Test' },
-        salles: { nom: 'Salle 101' }
+        salles: { nom: 'Salle 101' },
+        groupe: { nom: 'Groupe Test' }
     };
     const [localEvents, setLocalEvents] = useState(events.length > 0 ? events : [testEvent]);
     const tableRef = React.useRef<HTMLDivElement>(null);
@@ -77,7 +75,6 @@ export default function TimetableGrid({ events, currentDate, sectionName, niveau
 useEffect(() => {
   setLocalEvents(events); // ou la source initiale de tes cours
 }, [events]);
-    console.log('TimetableGrid localEvents:', localEvents);
 
     const grid: (EventData[])[][] = Array(DAYS.length).fill(null).map(() => Array(TIME_SLOTS.length).fill(null).map(() => []));
     const weekStart = moment(currentDate).startOf('week');
@@ -87,13 +84,6 @@ useEffect(() => {
         const dayIndex = eventDate.diff(weekStart, 'days');
         const eventStartHour = event.heure_debut.substring(0, 5);
         const timeSlotIndex = TIME_SLOTS.findIndex(slot => slot.start === eventStartHour);
-        console.log('GRID MAP', {
-          weekStart: weekStart.format('YYYY-MM-DD'),
-          eventDate: eventDate.format('YYYY-MM-DD'),
-          dayIndex,
-          timeSlotIndex,
-          eventId: event.id
-        });
         if (dayIndex >= 0 && dayIndex < DAYS.length && timeSlotIndex !== -1) {
             grid[dayIndex][timeSlotIndex].push(event);
         }
@@ -337,6 +327,9 @@ const exportPDF = async () => {
                 
                 // Salle
                 pdf.text(` ${event.salles?.nom || ''}`, textX, textY);
+                
+                // Groupe
+                pdf.text(` ${event.groupe?.nom || ''}`, textX, textY);
                 
                 // Badge type moderne dans le coin
                 if (event.type) {
@@ -611,6 +604,7 @@ const exportHTML = () => {
                                                                         </span>
                                                                         <span className="text-xs text-gray-700 font-medium">{event.enseignants?.nom}</span>
                                                                         <span className="text-xs text-gray-500">{event.salles?.nom}</span>
+                                                                        <div>Groupe : {event.groupe?.nom}</div>
                                                                         {event.type && (
                                                                             <span className={`text-[10px] ${getTypeColor(event.type).bg} ${getTypeColor(event.type).text} ${getTypeColor(event.type).border} border rounded px-2 py-1 mt-1 font-semibold`}>
                                                                                 {event.type}

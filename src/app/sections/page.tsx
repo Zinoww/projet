@@ -215,14 +215,6 @@ export default function SectionsPage() {
                 <div className="bg-white p-6 rounded-lg shadow-md mb-8">
                     <h2 className="text-2xl font-semibold text-gray-700 mb-4">Ajouter une section</h2>
                     <form onSubmit={handleAddSection} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                        <input
-                            type="text"
-                            value={newSection.nom}
-                            onChange={(e) => setNewSection({ ...newSection, nom: e.target.value })}
-                            placeholder="Nom de la section"
-                            className="w-full p-2 border rounded-lg md:col-span-1"
-                            required
-                        />
                         <select
                             value={newSection.filiere_id}
                             onChange={(e) => setNewSection({ ...newSection, filiere_id: e.target.value })}
@@ -232,6 +224,14 @@ export default function SectionsPage() {
                             <option value="">-- Choisir une filière --</option>
                             {filieres.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
                         </select>
+                        <input
+                            type="text"
+                            value={newSection.nom}
+                            onChange={(e) => setNewSection({ ...newSection, nom: e.target.value })}
+                            placeholder="Nom de la nouvelle section"
+                            className="w-full p-2 border rounded-lg md:col-span-1"
+                            required
+                        />
                         <button type="submit" className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center justify-center md:col-span-1">
                             <FaPlus className="mr-2"/> Ajouter
                         </button>
@@ -243,9 +243,13 @@ export default function SectionsPage() {
                         <table className="min-w-full leading-normal">
                             <thead>
                                 <tr>
-                                    <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Nom de la Section</th>
-                                    <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Filière</th>
-                                    <th className="px-5 py-3 border-b-2 bg-gray-100 text-right text-xs font-semibold uppercase">Actions</th>
+                                    <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                                        Filière
+                                    </th>
+                                    <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                                        Nom de la Section
+                                    </th>
+                                    <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100"></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -254,13 +258,6 @@ export default function SectionsPage() {
                                         {editingSection?.id === section.id ? (
                                             <td colSpan={3} className="px-5 py-4 border-b">
                                                  <form onSubmit={handleUpdateSection} className="grid grid-cols-4 gap-3 items-center">
-                                                    <input
-                                                        type="text"
-                                                        value={editingSection.nom}
-                                                        onChange={(e) => setEditingSection({ ...editingSection, nom: e.target.value })}
-                                                        className="w-full p-1 border rounded"
-                                                        autoFocus
-                                                    />
                                                      <select
                                                         value={editingSection.filiere_id}
                                                         onChange={(e) => setEditingSection({ ...editingSection, filiere_id: e.target.value })}
@@ -268,7 +265,14 @@ export default function SectionsPage() {
                                                     >
                                                         {filieres.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
                                                     </select>
-                                                    <div className="flex gap-2 justify-end">
+                                                    <input
+                                                        type="text"
+                                                        value={editingSection.nom}
+                                                        onChange={(e) => setEditingSection({ ...editingSection, nom: e.target.value })}
+                                                        className="w-full p-1 border rounded"
+                                                        autoFocus
+                                                    />
+                                                    <div className="flex gap-2 justify-end col-span-2">
                                                         <button type="submit" className="px-3 py-1 rounded bg-green-500 text-white">Sauver</button>
                                                         <button type="button" onClick={() => setEditingSection(null)} className="px-3 py-1 rounded bg-gray-200">Annuler</button>
                                                     </div>
@@ -276,8 +280,12 @@ export default function SectionsPage() {
                                             </td>
                                         ) : (
                                             <>
-                                                <td className="px-5 py-4 border-b text-sm"><p className="font-semibold">{section.nom}</p></td>
-                                                <td className="px-5 py-4 border-b text-sm">{section.filieres?.nom || 'N/A'}</td>
+                                                <td className="px-5 py-4 border-b text-sm">
+                                                    <p className="font-semibold">{section.filieres?.nom || 'N/A'}</p>
+                                                </td>
+                                                <td className="px-5 py-4 border-b text-sm">
+                                                    <p>{section.nom}</p>
+                                                </td>
                                                 <td className="px-5 py-4 border-b text-sm text-right">
                                                     <div className="inline-flex space-x-3">
                                                         <button onClick={() => setEditingSection(section)} className="text-yellow-600 hover:text-yellow-800"><FaPencilAlt /></button>

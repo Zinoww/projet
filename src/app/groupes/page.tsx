@@ -234,7 +234,6 @@ export default function GroupesPage() {
                     <h2 className="text-2xl font-semibold text-gray-700 mb-4">Ajouter un groupe</h2>
                     <form onSubmit={handleAddGroupe} className="space-y-4">
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                            <input type="text" value={newGroupe.nom} onChange={(e) => setNewGroupe({ ...newGroupe, nom: e.target.value })} placeholder="Nom (ex: G1)" className="w-full p-2 border rounded-lg" required />
                             <input
                                 type="text"
                                 list="niveaux-list"
@@ -253,6 +252,7 @@ export default function GroupesPage() {
                                 <option value="">-- Choisir une section --</option>
                                 {sections.map(s => <option key={s.id} value={s.id}>{s.nom}</option>)}
                             </select>
+                            <input type="text" value={newGroupe.nom} onChange={(e) => setNewGroupe({ ...newGroupe, nom: e.target.value })} placeholder="Nom du groupe (ex: G1)" className="w-full p-2 border rounded-lg" required />
                         </div>
                         <button type="submit" className="w-full md:w-auto bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center justify-center">
                             <FaPlus className="mr-2"/> Ajouter
@@ -265,11 +265,11 @@ export default function GroupesPage() {
                         <table className="min-w-full leading-normal">
                             <thead>
                                 <tr>
-                                    <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Nom</th>
+                                    <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Filière</th>
                                     <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Niveau</th>
                                     <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Spécialité</th>
                                     <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Section</th>
-                                    <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Filière</th>
+                                    <th className="px-5 py-3 border-b-2 bg-gray-100 text-left text-xs font-semibold uppercase">Groupe</th>
                                     <th className="px-5 py-3 border-b-2 bg-gray-100 text-right text-xs font-semibold uppercase">Actions</th>
                                 </tr>
                             </thead>
@@ -279,7 +279,9 @@ export default function GroupesPage() {
                                         {editingGroupe?.id === groupe.id ? (
                                             <td colSpan={6} className="px-5 py-4 border-b">
                                                  <form onSubmit={handleUpdateGroupe} className="grid grid-cols-5 gap-3 items-center">
-                                                    <input type="text" value={editingGroupe.nom} onChange={(e) => setEditingGroupe({ ...editingGroupe, nom: e.target.value })} className="w-full p-1 border rounded" />
+                                                    <select value={editingGroupe.section_id} onChange={(e) => setEditingGroupe({ ...editingGroupe, section_id: e.target.value })} className="w-full p-1 border rounded">
+                                                         {sections.map(s => <option key={s.id} value={s.id}>{s.nom}</option>)}
+                                                    </select>
                                                     <input
                                                         type="text"
                                                         list="niveaux-list"
@@ -294,9 +296,7 @@ export default function GroupesPage() {
                                                         {NIVEAUX.map(niv => <option key={niv} value={niv} />)}
                                                     </datalist>
                                                     <input type="text" value={editingGroupe.specialite || ''} onChange={(e) => setEditingGroupe({ ...editingGroupe, specialite: e.target.value })} className="w-full p-1 border rounded" />
-                                                    <select value={editingGroupe.section_id} onChange={(e) => setEditingGroupe({ ...editingGroupe, section_id: e.target.value })} className="w-full p-1 border rounded">
-                                                         {sections.map(s => <option key={s.id} value={s.id}>{s.nom}</option>)}
-                                                    </select>
+                                                    <input type="text" value={editingGroupe.nom} onChange={(e) => setEditingGroupe({ ...editingGroupe, nom: e.target.value })} className="w-full p-1 border rounded" />
                                                     <div className="flex gap-2 justify-end">
                                                         <button type="submit" className="px-3 py-1 rounded bg-green-500 text-white">Sauver</button>
                                                         <button type="button" onClick={() => setEditingGroupe(null)} className="px-3 py-1 rounded bg-gray-200">Annuler</button>
@@ -305,11 +305,11 @@ export default function GroupesPage() {
                                             </td>
                                         ) : (
                                             <>
-                                                <td className="px-5 py-4 border-b text-sm"><p className="font-semibold">{groupe.nom}</p></td>
+                                                <td className="px-5 py-4 border-b text-sm">{groupe.sections?.filieres?.nom || 'N/A'}</td>
                                                 <td className="px-5 py-4 border-b text-sm">{groupe.niveau || 'N/A'}</td>
                                                 <td className="px-5 py-4 border-b text-sm">{groupe.specialite || 'N/A'}</td>
                                                 <td className="px-5 py-4 border-b text-sm">{groupe.sections?.nom || 'N/A'}</td>
-                                                <td className="px-5 py-4 border-b text-sm">{groupe.sections?.filieres?.nom || 'N/A'}</td>
+                                                <td className="px-5 py-4 border-b text-sm"><p className="font-semibold">{groupe.nom}</p></td>
                                                 <td className="px-5 py-4 border-b text-sm text-right">
                                                     <div className="inline-flex space-x-3">
                                                         <button onClick={() => setEditingGroupe(groupe)} className="text-yellow-600 hover:text-yellow-800"><FaPencilAlt /></button>

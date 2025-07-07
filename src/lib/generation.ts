@@ -72,31 +72,23 @@ function peutPlacerSeance(
     amphis: any[],
     sallesNormales: any[]
 ): boolean {
-    // Vérifier si le groupe est disponible
-    if (seance.types_seances?.nom?.toLowerCase().includes('cm')) {
-        // Pour les CM, vérifier que tous les groupes sont libres
-        const groupesOccupe = state.planningGroupes[jour]?.[creneau.debut]?.length > 0;
-        if (groupesOccupe) return false;
-    } else {
-        // Pour les TD/TP, vérifier que le groupe spécifique est libre
-        const groupeOccupe = state.planningGroupes[jour]?.[creneau.debut]?.includes(seance.groupe_id);
-        if (groupeOccupe) return false;
-    }
+    // Vérifier si le groupe est déjà occupé à ce créneau
+    const groupeOccupe = state.planningGroupes[jour]?.[creneau.debut]?.includes(seance.groupe_id);
+    if (groupeOccupe) return false;
 
-    // Vérifier si l'enseignant est disponible
+    // Vérifier si la salle est déjà occupée à ce créneau
+    const salleOccupee = state.planningSalles[jour]?.[creneau.debut]?.includes(salle_id);
+    if (salleOccupee) return false;
+
+    // Vérifier si l'enseignant est déjà occupé à ce créneau
     if (seance.enseignant_id) {
         const enseignantOccupe = state.planningEnseignants[jour]?.[creneau.debut]?.includes(seance.enseignant_id);
         if (enseignantOccupe) return false;
     }
 
-    // Vérifier si la salle est disponible
-    const salleOccupee = state.planningSalles[jour]?.[creneau.debut]?.includes(salle_id);
-    if (salleOccupee) return false;
-
     // Vérifier la capacité de la salle
     const salle = [...amphis, ...sallesNormales].find(s => s.id === salle_id);
     if (!salle || !salle.capacite) return false;
-
     if (seance.types_seances?.nom?.toLowerCase().includes('cm')) {
         // Pour les CM, vérifier la capacité pour tous les groupes
         if (salle.capacite < groupes.length * 30) return false;
@@ -117,6 +109,19 @@ function placerSeance(
     state: PlacementState,
     groupes: any[]
 ): PlacementState {
+    // Contrôle anti-doublon : ne pas placer si un même créneau existe déjà
+    const doublon = state.planning.find(p =>
+        p.jour === jour &&
+        p.heure_debut === creneau.debut &&
+        p.heure_fin === creneau.fin &&
+        p.salle_id === salle_id &&
+        p.seance_id === seance.id
+    );
+    if (doublon) {
+        // Ne rien faire, retourne l'état inchangé
+        return state;
+    }
+
     const newState = {
         planning: [...state.planning, {
             seance_id: seance.id,
@@ -237,8 +242,6 @@ function ameliorationLocale(
     let iterations = 0;
     const maxIterations = 100;
 
-    console.log('🔧 Début de l\'amélioration locale...');
-
     while (amelioration && iterations < maxIterations) {
         amelioration = false;
         iterations++;
@@ -264,7 +267,6 @@ function ameliorationLocale(
                         if (scoreApres > scoreAvant) {
                             state = newState;
                             amelioration = true;
-                            console.log(`✅ Échange améliorant: ${scoreAvant} → ${scoreApres}`);
                             break;
                         }
                     }
@@ -274,7 +276,6 @@ function ameliorationLocale(
         }
     }
 
-    console.log(`🔧 Amélioration locale terminée après ${iterations} itérations`);
     return state;
 }
 
@@ -538,7 +539,8 @@ export async function diagnostiquerDonneesSimple(sectionId: string): Promise<str
 export async function genererEmploiDuTemps(
     sectionId: string, 
     setMessage: (msg: string) => void,
-    niveau?: string
+    niveau?: string,
+    nombreSeances?: number
 ): Promise<boolean> {
     // --- Étape 1: Récupération des données ---
     setMessage('1/7 - Récupération des données...');
@@ -549,6 +551,10 @@ export async function genererEmploiDuTemps(
         .select('id, nom, niveau, specialite, section_id')
         .eq('section_id', sectionId)
         .order('nom');
+
+    const groupesIdsSet = new Set((groupes || []).map(g => g.id));
+    console.log('Groupes utilisés pour la génération:', groupes && groupes.map(g => ({ id: g.id, nom: g.nom })));
+    
 
     if (groupesError || !groupes || groupes.length === 0) {
         setMessage('Aucun groupe trouvé pour cette section.');
@@ -568,11 +574,10 @@ export async function genererEmploiDuTemps(
         
         if (coursError || !cours || cours.length === 0) {
             setMessage(`Aucun cours trouvé pour le niveau ${niveau}.`);
-            return false;
-        }
-        
+        return false;
+    }
+
         coursIds = cours.map(c => c.id);
-        console.log(`Cours trouvés pour ${niveau}:`, cours.map(c => c.nom));
     }
 
     // c. Récupérer toutes les séances de ces groupes ET cours
@@ -588,7 +593,11 @@ export async function genererEmploiDuTemps(
 
     const { data: seances, error: seancesError } = await seancesQuery;
 
-    if (seancesError || !seances || seances.length === 0) {
+    // Filtrer les séances pour ne garder que celles dont le groupe_id est bien dans la section
+    const seancesFiltrees = (seances || []).filter(s => groupesIdsSet.has(s.groupe_id));
+    console.log('Séances récupérées pour la génération:', seancesFiltrees && seancesFiltrees.map(s => ({ id: s.id, groupe_id: s.groupe_id, cours_id: s.cours_id })));
+
+    if (seancesError || !seancesFiltrees || seancesFiltrees.length === 0) {
         const message = niveau ? 
             `Erreur ou aucune séance à planifier pour cette section au niveau ${niveau}. ${seancesError?.message || ''}` :
             `Erreur ou aucune séance à planifier pour cette section. ${seancesError?.message || ''}`;
@@ -597,9 +606,9 @@ export async function genererEmploiDuTemps(
     }
 
     // Afficher le résumé des séances trouvées
-    const coursTrouves = [...new Set(seances.map(s => (s.cours as { nom: string })?.nom))];
+    const coursTrouves = [...new Set(seancesFiltrees.map(s => (s.cours as { nom: string })?.nom))];
     console.log(`Séances trouvées pour ${niveau || 'tous niveaux'}:`, {
-        totalSeances: seances.length,
+        totalSeances: seancesFiltrees.length,
         coursConcernes: coursTrouves,
         groupesConcernes: groupes.length
     });
@@ -625,17 +634,13 @@ export async function genererEmploiDuTemps(
         (!s.capacite || s.capacite < 100) // Salles avec capacité normale
     );
 
-    console.log(`Salles disponibles:`, salles.map(s => `${s.nom} (${s.capacite} places)`));
-    console.log(`Amphis disponibles:`, amphis.map(s => `${s.nom} (${s.capacite} places)`));
-    console.log(`Salles normales disponibles:`, sallesNormales.map(s => `${s.nom} (${s.capacite} places)`));
-
     // --- Étape 2: Organisation et tri des séances par difficulté ---
     setMessage('2/7 - Organisation et tri des séances...');
 
     // Séparer les séances par type
-    const seancesCM = seances.filter(s => (s.types_seances as { nom: string })?.nom?.toLowerCase().includes('cm'));
-    const seancesTD = seances.filter(s => (s.types_seances as { nom: string })?.nom?.toLowerCase().includes('td'));
-    const seancesTP = seances.filter(s => (s.types_seances as { nom: string })?.nom?.toLowerCase().includes('tp'));
+    const seancesCM = seancesFiltrees.filter(s => (s.types_seances as { nom: string })?.nom?.toLowerCase().includes('cm'));
+    const seancesTD = seancesFiltrees.filter(s => (s.types_seances as { nom: string })?.nom?.toLowerCase().includes('td'));
+    const seancesTP = seancesFiltrees.filter(s => (s.types_seances as { nom: string })?.nom?.toLowerCase().includes('tp'));
 
     console.log(`Séances trouvées: ${seancesCM.length} CM, ${seancesTD.length} TD, ${seancesTP.length} TP`);
     console.log(`Groupes dans la section: ${groupes.length} (${groupes.map(g => g.nom).join(', ')})`);
@@ -643,11 +648,16 @@ export async function genererEmploiDuTemps(
 
     // Trier les séances par difficulté de placement (plus difficile en premier)
     const toutesSeances = [...seancesCM, ...seancesTD, ...seancesTP];
-    const seancesTriees = toutesSeances.sort((a, b) => {
+    let seancesTriees = toutesSeances.sort((a, b) => {
         const difficulteA = calculerDifficultePlacement(a, groupes, salles);
         const difficulteB = calculerDifficultePlacement(b, groupes, salles);
         return difficulteB - difficulteA; // Ordre décroissant
     });
+
+    // Si nombreSeances est défini, ne garder que ce nombre de séances
+    if (typeof nombreSeances === 'number' && nombreSeances > 0) {
+        seancesTriees = seancesTriees.slice(0, nombreSeances);
+    }
 
     console.log('Séances triées par difficulté:', seancesTriees.map(s => ({
         cours: (s.cours as { nom: string })?.nom,
@@ -721,28 +731,34 @@ export async function genererEmploiDuTemps(
     setMessage('6/7 - Sauvegarde du nouvel emploi du temps...');
     
     // a. Supprimer les anciennes entrées de l'emploi du temps pour cette section
+    console.log('Suppression emplois_du_temps pour seances:', seancesFiltrees.map(s => s.id));
     const { error: deleteError } = await supabase
         .from('emplois_du_temps')
         .delete()
-        .in('seance_id', seances.map(s => s.id));
+        .in('seance_id', seancesFiltrees.map(s => s.id));
 
-    if (deleteError) {
-        setMessage(`Erreur lors du nettoyage de l'ancien planning: ${deleteError.message}`);
-        return false;
+        if (deleteError) {
+            setMessage(`Erreur lors du nettoyage de l'ancien planning: ${deleteError.message}`);
+            return false;
     }
 
     // b. Insérer le nouveau planning
+    console.log('Insertion emplois_du_temps planning:', planningOptimise.planning);
     const { error: insertError } = await supabase.from('emplois_du_temps').insert(planningOptimise.planning);
     if (insertError) {
         setMessage(`Erreur lors de la sauvegarde du nouveau planning: ${insertError.message}`);
         return false;
     }
 
+    // Après l'insertion dans emplois_du_temps
+    console.log('Planning inséré dans emplois_du_temps:', planningOptimise.planning);
+    console.log('Séances concernées par la génération:', seancesFiltrees.map(s => ({ id: s.id, groupe_id: s.groupe_id })));
+
     // --- Étape 7: Rapport final ---
     setMessage('7/7 - Génération terminée !');
 
     const seancesPlacees = planningOptimise.planning.length;
-    const seancesTotales = seances.length;
+    const seancesTotales = seancesFiltrees.length;
     const scoreFinal = calculerScorePlanning(planningOptimise);
     
     let messageFinal = `🎯 Génération réussie avec algorithme avancé ! ${seancesPlacees}/${seancesTotales} séances placées.`;
@@ -847,8 +863,6 @@ function optimisationAvancee(
     jours: string[],
     creneaux: Creneau[]
 ): PlacementState {
-    console.log('🚀 Début de l\'optimisation avancée...');
-    
     let meilleurState = { ...state };
     let meilleurScore = calculerScorePlanning(state);
     let iterations = 0;
@@ -890,7 +904,6 @@ function optimisationAvancee(
             if (meilleurScoreVoisin > meilleurScore) {
                 meilleurState = { ...state };
                 meilleurScore = meilleurScoreVoisin;
-                console.log(`🏆 Nouveau meilleur score: ${meilleurScore}`);
             }
         } else {
             // Aucun voisin valide trouvé, arrêter
@@ -898,7 +911,6 @@ function optimisationAvancee(
         }
     }
     
-    console.log(`🚀 Optimisation avancée terminée après ${iterations} itérations`);
     return meilleurState;
 }
 
@@ -982,8 +994,6 @@ export async function testerAlgorithmeAvance(
     setMessage: (msg: string) => void,
     niveau?: string
 ): Promise<{ success: boolean; details: string; planning: any[] }> {
-    console.log('🧪 Test de l\'algorithme avancé...');
-    
     try {
         // Récupérer les données de base
         const { data: groupes } = await supabase
@@ -991,7 +1001,7 @@ export async function testerAlgorithmeAvance(
             .select('id, nom, niveau, specialite, section_id')
             .eq('section_id', sectionId)
             .order('nom');
-
+        
         if (!groupes || groupes.length === 0) {
             return { success: false, details: 'Aucun groupe trouvé', planning: [] };
         }
@@ -1070,7 +1080,6 @@ export async function testerAlgorithmeAvance(
         };
 
         // Test du backtracking
-        console.log('🧪 Test du backtracking...');
         const resultatBacktracking = backtrackingPlacement(
             seancesTriees,
             initialState,
@@ -1087,7 +1096,6 @@ export async function testerAlgorithmeAvance(
         }
 
         // Test de l'amélioration locale
-        console.log('🧪 Test de l\'amélioration locale...');
         const resultatAmelioration = ameliorationLocale(
             resultatBacktracking,
             groupes,
@@ -1098,7 +1106,6 @@ export async function testerAlgorithmeAvance(
         );
 
         // Test de l'optimisation avancée
-        console.log('🧪 Test de l\'optimisation avancée...');
         const resultatOptimisation = optimisationAvancee(
             resultatAmelioration,
             groupes,
@@ -1139,7 +1146,7 @@ export async function testerAlgorithmeAvance(
             details: details,
             planning: resultatOptimisation.planning
         };
-
+        
     } catch (error) {
         console.error('Erreur lors du test:', error);
         return {
