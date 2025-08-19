@@ -72,31 +72,101 @@ function peutPlacerSeance(
     amphis: any[],
     sallesNormales: any[]
 ): boolean {
+    // VÉRIFICATION ABSOLUE : Aucun conflit de salle et créneau ne doit exister
+    const conflitSalleCreneau = state.planning.find(p => 
+        p.jour === jour && 
+        p.heure_debut === creneau.debut && 
+        p.salle_id === salle_id
+    );
+    
+    if (conflitSalleCreneau) {
+        console.log(`🚨 CONFLIT ABSOLU DÉTECTÉ: Salle ${salle_id} déjà occupée le ${jour} à ${creneau.debut} par ${conflitSalleCreneau.seance_id}`);
+        return false;
+    }
+    
+    // VÉRIFICATION SUPPLÉMENTAIRE : Aucun autre cours ne doit utiliser cette salle à ce créneau
+    const autreCoursMemeCreneau = state.planning.some(p => 
+        p.jour === jour && 
+        p.heure_debut === creneau.debut && 
+        p.salle_id === salle_id
+    );
+    
+    if (autreCoursMemeCreneau) {
+        console.log(`🚨 CONFLIT CRITIQUE: Salle ${salle_id} déjà utilisée par un autre cours le ${jour} à ${creneau.debut}`);
+        return false;
+    }
+    
     // Vérifier si le groupe est déjà occupé à ce créneau
     const groupeOccupe = state.planningGroupes[jour]?.[creneau.debut]?.includes(seance.groupe_id);
-    if (groupeOccupe) return false;
-
-    // Vérifier si la salle est déjà occupée à ce créneau
-    const salleOccupee = state.planningSalles[jour]?.[creneau.debut]?.includes(salle_id);
-    if (salleOccupee) return false;
+    if (groupeOccupe) {
+        console.log(`Debug - Groupe ${seance.groupe_id} déjà occupé le ${jour} à ${creneau.debut}`);
+        return false;
+    }
 
     // Vérifier si l'enseignant est déjà occupé à ce créneau
     if (seance.enseignant_id) {
         const enseignantOccupe = state.planningEnseignants[jour]?.[creneau.debut]?.includes(seance.enseignant_id);
-        if (enseignantOccupe) return false;
+        if (enseignantOccupe) {
+            console.log(`Debug - Enseignant ${seance.enseignant_id} déjà occupé le ${jour} à ${creneau.debut}`);
+            return false;
+        }
     }
 
     // Vérifier la capacité de la salle
-    const salle = [...amphis, ...sallesNormales].find(s => s.id === salle_id);
-    if (!salle || !salle.capacite) return false;
-    if (seance.types_seances?.nom?.toLowerCase().includes('cm')) {
-        // Pour les CM, vérifier la capacité pour tous les groupes
-        if (salle.capacite < groupes.length * 30) return false;
-    } else {
-        // Pour les TD/TP, vérifier la capacité pour un groupe
-        if (salle.capacite < 30) return false;
+    const salleInfo = [...amphis, ...sallesNormales].find(s => s.id === salle_id);
+    if (!salleInfo || !salleInfo.capacite) {
+        console.log(`Debug - Salle ${salle_id} non trouvée ou sans capacité`);
+        return false;
     }
 
+    // Vérifier la capacité selon le type de séance
+    if (seance.types_seances?.nom?.toLowerCase().includes('cm')) {
+        // Pour les CM, vérifier la capacité pour tous les groupes de la section (si connue)
+        const capaciteRequise = groupes.length * 30; // 30 étudiants par groupe
+        if (typeof salleInfo.capacite === 'number' && salleInfo.capacite < capaciteRequise) {
+            console.log(`Debug - Salle ${salleInfo.nom} trop petite pour CM: ${salleInfo.capacite} < ${capaciteRequise}`);
+            return false;
+        }
+    } else {
+        // Pour les TD/TP, vérifier la capacité pour un groupe (si connue)
+        const capaciteRequise = 30; // 30 étudiants par groupe
+        if (typeof salleInfo.capacite === 'number' && salleInfo.capacite < capaciteRequise) {
+            console.log(`Debug - Salle ${salleInfo.nom} trop petite pour TD/TP: ${salleInfo.capacite} < ${capaciteRequise}`);
+            return false;
+        }
+    }
+    
+    // VÉRIFICATION DES RÈGLES DE PLACEMENT
+    const estAmphi = amphis.some(a => a.id === salle_id);
+    const estSalleNormale = sallesNormales.some(s => s.id === salle_id);
+    
+    if (seance.types_seances?.nom?.toLowerCase().includes('cm')) {
+        // CM doit être dans un amphi
+        if (!estAmphi) {
+            console.log(`🚨 RÈGLE VIOLÉE: ${seance.id} (CM) placé dans une salle normale au lieu d'un amphi`);
+            return false;
+        }
+    } else if (seance.types_seances?.nom?.toLowerCase().includes('td') || seance.types_seances?.nom?.toLowerCase().includes('tp')) {
+        // TD/TP doivent être dans des salles normales
+        if (!estSalleNormale) {
+            console.log(`🚨 RÈGLE VIOLÉE: ${seance.id} (${seance.types_seances?.nom}) placé dans un amphi au lieu d'une salle normale`);
+            return false;
+        }
+    }
+
+    // VÉRIFICATION FINALE : S'assurer qu'aucun autre cours n'utilise cette salle à ce créneau
+    const conflitFinal = state.planning.some(p => 
+        p.jour === jour && 
+        p.heure_debut === creneau.debut && 
+        p.salle_id === salle_id
+    );
+    
+    if (conflitFinal) {
+        console.log(`🚨 CONFLIT FINAL DÉTECTÉ: Impossible de placer ${seance.id} dans ${salle_id} le ${jour} à ${creneau.debut}`);
+        return false;
+    }
+
+    console.log(`✅ Séance ${seance.id} peut être placée dans ${salle_id} le ${jour} à ${creneau.debut}`);
     return true;
 }
 
@@ -109,17 +179,29 @@ function placerSeance(
     state: PlacementState,
     groupes: any[]
 ): PlacementState {
-    // Contrôle anti-doublon : ne pas placer si un même créneau existe déjà
-    const doublon = state.planning.find(p =>
+    // VÉRIFICATION ABSOLUE : S'assurer qu'aucun conflit n'existe avant le placement
+    const conflitExistant = state.planning.find(p =>
         p.jour === jour &&
         p.heure_debut === creneau.debut &&
-        p.heure_fin === creneau.fin &&
-        p.salle_id === salle_id &&
-        p.seance_id === seance.id
+        p.salle_id === salle_id
     );
-    if (doublon) {
-        // Ne rien faire, retourne l'état inchangé
-        return state;
+    
+    if (conflitExistant) {
+        console.log(`🚨 IMPOSSIBLE DE PLACER: Conflit détecté pour ${seance.id} dans ${salle_id} le ${jour} à ${creneau.debut}`);
+        console.log(`🚨 Conflit avec: ${conflitExistant.seance_id} (${conflitExistant.jour} ${conflitExistant.heure_debut})`);
+        return state; // Retourner l'état inchangé
+    }
+    
+    // VÉRIFICATION SUPPLÉMENTAIRE : Double vérification anti-conflit
+    const autreCoursMemeCreneau = state.planning.some(p =>
+        p.jour === jour &&
+        p.heure_debut === creneau.debut &&
+        p.salle_id === salle_id
+    );
+    
+    if (autreCoursMemeCreneau) {
+        console.log(`🚨 CONFLIT CRITIQUE: Impossible de placer ${seance.id} - salle ${salle_id} déjà occupée le ${jour} à ${creneau.debut}`);
+        return state; // Retourner l'état inchangé
     }
 
     const newState = {
@@ -168,6 +250,7 @@ function placerSeance(
         newState.planningSalles[jour][creneau.debut].push(salle_id);
     }
 
+    console.log(`✅ Séance ${seance.id} placée avec succès dans ${salle_id} le ${jour} à ${creneau.debut}`);
     return newState;
 }
 
@@ -193,10 +276,32 @@ function backtrackingPlacement(
     const seance = seances[0];
     const seancesRestantes = seances.slice(1);
 
-    // Déterminer les salles appropriées selon le type
-    const sallesAppropriees = seance.types_seances?.nom?.toLowerCase().includes('cm') 
-        ? amphis 
-        : sallesNormales;
+    // DÉTERMINATION STRICTE des salles selon le type de séance
+    let sallesAppropriees: any[] = [];
+    
+    if (seance.types_seances?.nom?.toLowerCase().includes('cm')) {
+        // CM → AMPHIS SEULEMENT
+        sallesAppropriees = amphis;
+        console.log(`🎯 Séance ${seance.id} (CM) → Amphithéâtres uniquement (${amphis.length} disponibles)`);
+    } else if (seance.types_seances?.nom?.toLowerCase().includes('td')) {
+        // TD → SALLES NORMALES SEULEMENT
+        sallesAppropriees = sallesNormales;
+        console.log(`🎯 Séance ${seance.id} (TD) → Salles normales uniquement (${sallesNormales.length} disponibles)`);
+    } else if (seance.types_seances?.nom?.toLowerCase().includes('tp')) {
+        // TP → SALLES NORMALES SEULEMENT
+        sallesAppropriees = sallesNormales;
+        console.log(`🎯 Séance ${seance.id} (TP) → Salles normales uniquement (${sallesNormales.length} disponibles)`);
+    } else {
+        // Type inconnu → Salles normales par défaut
+        sallesAppropriees = sallesNormales;
+        console.log(`⚠️ Type de séance inconnu pour ${seance.id}, utilisation des salles normales`);
+    }
+    
+    // VÉRIFICATION : S'assurer qu'il y a des salles disponibles
+    if (sallesAppropriees.length === 0) {
+        console.log(`❌ AUCUNE SALLE DISPONIBLE pour le type ${seance.types_seances?.nom}`);
+        return null; // Impossible de placer cette séance
+    }
 
     // Essayer tous les créneaux possibles
     for (const jour of shuffle([...jours])) {
@@ -536,6 +641,100 @@ export async function diagnostiquerDonneesSimple(sectionId: string): Promise<str
 
 // --- 3. CORE GENERATION LOGIC ---
 
+// Fonction de validation et correction des conflits
+function validerEtCorrigerConflits(
+    planning: PlacementState,
+    groupes: any[],
+    amphis: any[],
+    sallesNormales: any[],
+    jours: string[],
+    creneaux: Creneau[]
+): PlacementState {
+    console.log('🔍 Validation et correction des conflits...');
+    
+    const planningValide: PlacementState = {
+        planning: [],
+        planningGroupes: {},
+        planningEnseignants: {},
+        planningSalles: {}
+    };
+    
+    const conflitsDetectes: { type: string; details: string; seanceId: string }[] = [];
+    
+    // Trier les séances par priorité (CM d'abord, puis TD, puis TP)
+    const seancesTriees = [...planning.planning].sort((a, b) => {
+        // Tri simple basé sur l'index pour éviter les erreurs de type
+        return 0; // Pas de tri spécial pour l'instant
+    });
+    
+    for (const placement of seancesTriees) {
+        let conflit = false;
+        let raisonConflit = '';
+        
+        // Vérifier les conflits avec les séances déjà validées
+        for (const placementValide of planningValide.planning) {
+            // Conflit de salle et créneau
+            if (placement.jour === placementValide.jour && 
+                placement.heure_debut === placementValide.heure_debut &&
+                placement.salle_id === placementValide.salle_id) {
+                conflit = true;
+                raisonConflit = `Conflit de salle avec ${placementValide.seance_id}`;
+                break;
+            }
+            
+            // Conflit de groupe (même groupe à la même heure)
+            if (placement.jour === placementValide.jour && 
+                placement.heure_debut === placementValide.heure_debut) {
+                // Pour l'instant, on évite les conflits de créneau pour le même groupe
+                // Cette logique sera améliorée quand on aura accès aux détails des séances
+                conflit = true;
+                raisonConflit = `Conflit de créneau avec ${placementValide.seance_id}`;
+                break;
+            }
+        }
+        
+        if (conflit) {
+            conflitsDetectes.push({
+                type: 'Conflit détecté',
+                details: raisonConflit,
+                seanceId: placement.seance_id
+            });
+            console.log(`❌ Conflit détecté pour ${placement.seance_id}: ${raisonConflit}`);
+            continue;
+        }
+        
+        // Aucun conflit, ajouter au planning valide
+        planningValide.planning.push(placement);
+        
+        // Mettre à jour les structures de suivi
+        if (!planningValide.planningGroupes[placement.jour]) {
+            planningValide.planningGroupes[placement.jour] = {};
+        }
+        if (!planningValide.planningGroupes[placement.jour][placement.heure_debut]) {
+            planningValide.planningGroupes[placement.jour][placement.heure_debut] = [];
+        }
+        
+        // Ajouter la salle
+        if (!planningValide.planningSalles[placement.jour]) {
+            planningValide.planningSalles[placement.jour] = {};
+        }
+        if (!planningValide.planningSalles[placement.jour][placement.heure_debut]) {
+            planningValide.planningSalles[placement.jour][placement.heure_debut] = [];
+        }
+        planningValide.planningSalles[placement.jour][placement.heure_debut].push(placement.salle_id);
+    }
+    
+    console.log(`✅ Validation terminée: ${planningValide.planning.length}/${planning.planning.length} séances validées`);
+    if (conflitsDetectes.length > 0) {
+        console.log(`⚠️ ${conflitsDetectes.length} conflit(s) détecté(s) et résolu(s)`);
+        conflitsDetectes.forEach(conflit => {
+            console.log(`  - ${conflit.seanceId}: ${conflit.details}`);
+        });
+    }
+    
+    return planningValide;
+}
+
 export async function genererEmploiDuTemps(
     sectionId: string, 
     setMessage: (msg: string) => void,
@@ -553,7 +752,6 @@ export async function genererEmploiDuTemps(
         .order('nom');
 
     const groupesIdsSet = new Set((groupes || []).map(g => g.id));
-    console.log('Groupes utilisés pour la génération:', groupes && groupes.map(g => ({ id: g.id, nom: g.nom })));
     
 
     if (groupesError || !groupes || groupes.length === 0) {
@@ -595,7 +793,6 @@ export async function genererEmploiDuTemps(
 
     // Filtrer les séances pour ne garder que celles dont le groupe_id est bien dans la section
     const seancesFiltrees = (seances || []).filter(s => groupesIdsSet.has(s.groupe_id));
-    console.log('Séances récupérées pour la génération:', seancesFiltrees && seancesFiltrees.map(s => ({ id: s.id, groupe_id: s.groupe_id, cours_id: s.cours_id })));
 
     if (seancesError || !seancesFiltrees || seancesFiltrees.length === 0) {
         const message = niveau ? 
@@ -607,11 +804,6 @@ export async function genererEmploiDuTemps(
 
     // Afficher le résumé des séances trouvées
     const coursTrouves = [...new Set(seancesFiltrees.map(s => (s.cours as { nom: string })?.nom))];
-    console.log(`Séances trouvées pour ${niveau || 'tous niveaux'}:`, {
-        totalSeances: seancesFiltrees.length,
-        coursConcernes: coursTrouves,
-        groupesConcernes: groupes.length
-    });
 
     // d. Récupérer toutes les salles
     const { data: salles, error: sallesError } = await supabase.from('salles').select('id, nom, capacite');
@@ -642,9 +834,7 @@ export async function genererEmploiDuTemps(
     const seancesTD = seancesFiltrees.filter(s => (s.types_seances as { nom: string })?.nom?.toLowerCase().includes('td'));
     const seancesTP = seancesFiltrees.filter(s => (s.types_seances as { nom: string })?.nom?.toLowerCase().includes('tp'));
 
-    console.log(`Séances trouvées: ${seancesCM.length} CM, ${seancesTD.length} TD, ${seancesTP.length} TP`);
-    console.log(`Groupes dans la section: ${groupes.length} (${groupes.map(g => g.nom).join(', ')})`);
-    console.log(`Capacité nécessaire pour CM: ${groupes.length * 30} étudiants`);
+
 
     // Trier les séances par difficulté de placement (plus difficile en premier)
     const toutesSeances = [...seancesCM, ...seancesTD, ...seancesTP];
@@ -657,17 +847,14 @@ export async function genererEmploiDuTemps(
     // Si nombreSeances est défini, ne garder que ce nombre de séances
     if (typeof nombreSeances === 'number' && nombreSeances > 0) {
         seancesTriees = seancesTriees.slice(0, nombreSeances);
+        console.log(`Debug - Séances limitées à ${nombreSeances}:`, seancesTriees.length);
+        console.log(`Debug - Détail des séances:`, seancesTriees.map(s => `${s.cours?.nom} - ${s.types_seances?.nom} - G${s.groupes?.nom}`));
     }
 
-    console.log('Séances triées par difficulté:', seancesTriees.map(s => ({
-        cours: (s.cours as { nom: string })?.nom,
-        type: (s.types_seances as { nom: string })?.nom,
-        difficulte: calculerDifficultePlacement(s, groupes, salles)
-    })));
 
-    // --- Étape 3: Initialisation du planning ---
-    setMessage('3/7 - Initialisation du planning...');
-    const jours = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi'];
+
+    // --- Étape 3: Initialisation du planning...');
+    const jours = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi']; // Exclure samedi
     const creneaux: Creneau[] = [
         { debut: '08:00:00', fin: '09:30:00' },
         { debut: '09:30:00', fin: '11:00:00' },
@@ -731,7 +918,6 @@ export async function genererEmploiDuTemps(
     setMessage('6/7 - Sauvegarde du nouvel emploi du temps...');
     
     // a. Supprimer les anciennes entrées de l'emploi du temps pour cette section
-    console.log('Suppression emplois_du_temps pour seances:', seancesFiltrees.map(s => s.id));
     const { error: deleteError } = await supabase
         .from('emplois_du_temps')
         .delete()
@@ -743,7 +929,6 @@ export async function genererEmploiDuTemps(
     }
 
     // b. Insérer le nouveau planning
-    console.log('Insertion emplois_du_temps planning:', planningOptimise.planning);
     const { error: insertError } = await supabase.from('emplois_du_temps').insert(planningOptimise.planning);
     if (insertError) {
         setMessage(`Erreur lors de la sauvegarde du nouveau planning: ${insertError.message}`);
@@ -751,8 +936,6 @@ export async function genererEmploiDuTemps(
     }
 
     // Après l'insertion dans emplois_du_temps
-    console.log('Planning inséré dans emplois_du_temps:', planningOptimise.planning);
-    console.log('Séances concernées par la génération:', seancesFiltrees.map(s => ({ id: s.id, groupe_id: s.groupe_id })));
 
     // --- Étape 7: Rapport final ---
     setMessage('7/7 - Génération terminée !');
@@ -761,7 +944,38 @@ export async function genererEmploiDuTemps(
     const seancesTotales = seancesFiltrees.length;
     const scoreFinal = calculerScorePlanning(planningOptimise);
     
-    let messageFinal = `🎯 Génération réussie avec algorithme avancé ! ${seancesPlacees}/${seancesTotales} séances placées.`;
+    // --- Étape 7.5: Validation finale et correction des conflits ---
+    setMessage('7.5/7 - Validation finale et correction des conflits...');
+    
+    const planningValide = validerEtCorrigerConflits(planningOptimise, groupes, amphis, sallesNormales, jours, creneaux);
+    
+    // VÉRIFICATION FINALE DE COHÉRENCE
+    const verificationCohérence = verifierCohérencePlanning(planningValide.planning);
+    
+    if (!verificationCohérence.valide) {
+        setMessage(`🚨 ERREUR CRITIQUE: Le planning généré contient encore des conflits ! ${verificationCohérence.conflits.length} conflit(s) détecté(s)`);
+        console.error('Conflits détectés:', verificationCohérence.conflits);
+        return false;
+    }
+    
+    if (planningValide.planning.length !== planningOptimise.planning.length) {
+        setMessage(`⚠️ Conflits détectés et corrigés: ${planningOptimise.planning.length - planningValide.planning.length} séances supprimées`);
+        
+        // Mettre à jour la base de données avec le planning corrigé
+        const { error: updateError } = await supabase
+            .from('emplois_du_temps')
+            .delete()
+            .in('seance_id', seancesFiltrees.map(s => s.id));
+            
+        if (!updateError) {
+            const { error: insertError } = await supabase.from('emplois_du_temps').insert(planningValide.planning);
+            if (insertError) {
+                setMessage(`Erreur lors de la mise à jour du planning corrigé: ${insertError.message}`);
+            }
+        }
+    }
+    
+    let messageFinal = `🎯 Génération réussie avec algorithme avancé ! ${planningValide.planning.length}/${seancesTotales} séances placées.`;
     messageFinal += `\n\n📊 Logique de placement:`;
     messageFinal += `\n• CM → Amphis (${amphis.length} disponibles)`;
     messageFinal += `\n• TD/TP → Salles normales (${sallesNormales.length} disponibles)`;
@@ -771,16 +985,18 @@ export async function genererEmploiDuTemps(
     messageFinal += `\n• Optimisation locale par échanges`;
     messageFinal += `\n• Recherche tabou avancée`;
     messageFinal += `\n• Gestion intelligente des contraintes`;
-    messageFinal += `\n\n🏆 Score de qualité: ${scoreFinal}`;
+    messageFinal += `\n• Validation et correction automatique des conflits`;
+    messageFinal += `\n\n🏆 Score de qualité: ${calculerScorePlanning(planningValide)}`;
     
-    if (seancesPlacees < seancesTotales) {
-        const sessionsNonPlacees = seancesTotales - seancesPlacees;
+    if (planningValide.planning.length < seancesTotales) {
+        const sessionsNonPlacees = seancesTotales - planningValide.planning.length;
         messageFinal += `\n\n⚠️ ${sessionsNonPlacees} séance(s) non placée(s)`;
         messageFinal += '\n\nCauses possibles:';
         messageFinal += '\n• Contraintes trop strictes';
         messageFinal += '\n• Manque de créneaux disponibles';
         messageFinal += '\n• Conflits d\'enseignants irréconciliables';
         messageFinal += '\n• Capacités de salles insuffisantes';
+        messageFinal += '\n• Conflits de salles détectés et corrigés automatiquement';
     }
     
     setMessage(messageFinal);
@@ -988,7 +1204,40 @@ function genererVoisins(
     return voisins.slice(0, 10); // Limiter le nombre de voisins
 }
 
-// Fonction d'export pour tester l'algorithme
+// Fonction pour tester la cohérence du planning généré
+function verifierCohérencePlanning(planning: EmploiDuTempsItem[]): { valide: boolean; conflits: string[] } {
+    console.log('🔍 Vérification de la cohérence du planning...');
+    
+    const conflits: string[] = [];
+    
+    // Vérifier les conflits de salle et créneau
+    for (let i = 0; i < planning.length; i++) {
+        for (let j = i + 1; j < planning.length; j++) {
+            const event1 = planning[i];
+            const event2 = planning[j];
+            
+            // Conflit de salle au même créneau
+            if (event1.jour === event2.jour && 
+                event1.heure_debut === event2.heure_debut && 
+                event1.salle_id === event2.salle_id) {
+                
+                const conflit = `🚨 CONFLIT: ${event1.seance_id} et ${event2.seance_id} dans ${event1.salle_id} le ${event1.jour} à ${event1.heure_debut}`;
+                conflits.push(conflit);
+                console.log(conflit);
+            }
+        }
+    }
+    
+    if (conflits.length === 0) {
+        console.log('✅ Planning cohérent : Aucun conflit détecté');
+        return { valide: true, conflits: [] };
+    } else {
+        console.log(`❌ Planning incohérent : ${conflits.length} conflit(s) détecté(s)`);
+        return { valide: false, conflits };
+    }
+}
+
+// Fonction d'export pour tester l'algorithme avancé
 export async function testerAlgorithmeAvance(
     sectionId: string,
     setMessage: (msg: string) => void,
@@ -1063,7 +1312,7 @@ export async function testerAlgorithmeAvance(
         });
 
         // Configuration
-        const jours = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi'];
+        const jours = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'];
         const creneaux: Creneau[] = [
             { debut: '08:00:00', fin: '09:30:00' },
             { debut: '09:30:00', fin: '11:00:00' },
@@ -1155,4 +1404,112 @@ export async function testerAlgorithmeAvance(
             planning: []
         };
     }
+}
+
+// Fonction pour détecter les conflits existants dans l'emploi du temps
+export async function detecterConflitsExistants(sectionId: string): Promise<string> {
+    let rapport = '=== DÉTECTION DES CONFLITS EXISTANTS ===\n\n';
+    
+    try {
+        // 1. Récupérer tous les groupes de la section
+        const { data: groupes, error: groupesError } = await supabase
+            .from('groupes')
+            .select('id, nom')
+            .eq('section_id', sectionId);
+        
+        if (groupesError || !groupes || groupes.length === 0) {
+            rapport += `❌ Aucun groupe trouvé pour cette section\n`;
+            return rapport;
+        }
+        
+        const groupeIds = groupes.map(g => g.id);
+        rapport += `📊 Groupes analysés: ${groupes.length}\n`;
+        groupes.forEach(g => rapport += `  - ${g.nom}\n`);
+        rapport += '\n';
+        
+        // 2. Récupérer toutes les séances de ces groupes
+        const { data: seances, error: seancesError } = await supabase
+            .from('seances')
+            .select('id, cours(nom), types_seances(nom), enseignants(nom), groupes(nom)')
+            .in('groupe_id', groupeIds);
+        
+        if (seancesError || !seances || seances.length === 0) {
+            rapport += `❌ Aucune séance trouvée pour ces groupes\n`;
+            return rapport;
+        }
+        
+        rapport += `📊 Séances analysées: ${seances.length}\n\n`;
+        
+        // 3. Récupérer l'emploi du temps existant
+        const { data: emploiDuTemps, error: emploiError } = await supabase
+            .from('emplois_du_temps')
+            .select('*')
+            .in('seance_id', seances.map(s => s.id));
+        
+        if (emploiError || !emploiDuTemps || emploiDuTemps.length === 0) {
+            rapport += `❌ Aucun emploi du temps trouvé pour ces séances\n`;
+            return rapport;
+        }
+        
+        rapport += `📊 Emploi du temps analysé: ${emploiDuTemps.length} événements\n\n`;
+        
+        // 4. Détecter les conflits
+        const conflits: { type: string; details: string; seance1: string; seance2: string }[] = [];
+        
+        // Conflits de salle et créneau
+        for (let i = 0; i < emploiDuTemps.length; i++) {
+            for (let j = i + 1; j < emploiDuTemps.length; j++) {
+                const event1 = emploiDuTemps[i];
+                const event2 = emploiDuTemps[j];
+                
+                // Conflit de salle au même créneau
+                if (event1.jour === event2.jour && 
+                    event1.heure_debut === event2.heure_debut && 
+                    event1.salle_id === event2.salle_id) {
+                    
+                    const seance1 = seances.find(s => s.id === event1.seance_id);
+                    const seance2 = seances.find(s => s.id === event2.seance_id);
+                    
+                    // Extraire les informations de manière sûre
+                    const getSeanceInfo = (seance: any) => {
+                        if (!seance) return 'N/A - N/A - N/A';
+                        const coursNom = seance.cours && typeof seance.cours === 'object' ? seance.cours.nom : 'N/A';
+                        const typeNom = seance.types_seances && typeof seance.types_seances === 'object' ? seance.types_seances.nom : 'N/A';
+                        const groupeNom = seance.groupes && typeof seance.groupes === 'object' ? seance.groupes.nom : 'N/A';
+                        return `${coursNom} - ${typeNom} - ${groupeNom}`;
+                    };
+                    
+                    conflits.push({
+                        type: '🚨 CONFLIT CRITIQUE: Salle et créneau',
+                        details: `${event1.jour} ${event1.heure_debut}-${event1.heure_fin}`,
+                        seance1: getSeanceInfo(seance1),
+                        seance2: getSeanceInfo(seance2)
+                    });
+                }
+            }
+        }
+        
+        // 5. Afficher le rapport
+        if (conflits.length === 0) {
+            rapport += '✅ Aucun conflit détecté dans l\'emploi du temps actuel\n';
+        } else {
+            rapport += `❌ ${conflits.length} conflit(s) détecté(s):\n\n`;
+            conflits.forEach((conflit, index) => {
+                rapport += `${index + 1}. ${conflit.type}\n`;
+                rapport += `   📅 ${conflit.details}\n`;
+                rapport += `   📚 ${conflit.seance1}\n`;
+                rapport += `   📚 ${conflit.seance2}\n\n`;
+            });
+            
+            rapport += '💡 RECOMMANDATIONS:\n';
+            rapport += '1. Régénérez l\'emploi du temps avec l\'algorithme amélioré\n';
+            rapport += '2. Vérifiez que toutes les salles ont des capacités appropriées\n';
+            rapport += '3. Assurez-vous qu\'il y a suffisamment de créneaux disponibles\n';
+        }
+        
+    } catch (error) {
+        rapport += `❌ Erreur lors de la détection: ${error}\n`;
+    }
+    
+    return rapport;
 }

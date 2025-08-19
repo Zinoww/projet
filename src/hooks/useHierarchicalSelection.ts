@@ -25,7 +25,6 @@ export function useHierarchicalSelection() {
             const { data, error } = await supabase.from('filieres').select('id, nom').order('nom')
             if (error) console.error('Error loading filieres:', error)
             else {
-                console.log('Filieres loaded:', data)
                 setFilieres(data || [])
             }
             setLoading(false)
@@ -62,11 +61,9 @@ export function useHierarchicalSelection() {
                 .not('niveau', 'is', null)
 
             if (error) {
-                console.error('Error loading promotions:', error)
                 setPromotions([])
             } else {
                 const promotionsUniques = [...new Set(data.map(g => g.niveau).filter(Boolean) as string[])]
-                console.log('Promotions loaded:', promotionsUniques)
                 setPromotions(promotionsUniques.sort())
             }
             setLoading(false)
@@ -119,11 +116,9 @@ export function useHierarchicalSelection() {
                     .order('nom')
 
                 if (finalSectionsError) {
-                     console.error('Error loading final sections:', finalSectionsError)
                      setSections([])
                 }
                 else {
-                    console.log('Sections loaded:', finalSections)
                     setSections(finalSections || [])
                 }
             } else {
@@ -151,11 +146,9 @@ export function useHierarchicalSelection() {
                 .order('nom')
             
             if (error) {
-                console.error('Error loading groupes:', error)
                 setGroupes([])
             }
             else {
-                console.log('Groupes loaded:', data)
                 setGroupes(data || [])
             }
             setLoading(false)

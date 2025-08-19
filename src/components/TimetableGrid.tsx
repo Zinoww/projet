@@ -37,7 +37,7 @@ const TIME_SLOTS = [
  
 ];
 
-const DAYS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi'];
+const DAYS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
 
 // Ajout utilitaire classNames si manquant
 function classNames(...classes: string[]) {
@@ -95,7 +95,7 @@ useEffect(() => {
         if (!result.destination) return;
         const eventId = result.draggableId;
         const [newDayIndex, newGridIndex] = result.destination.droppableId.split('-').map(Number);
-        if (newDayIndex > 4) return; // Empêcher le drop sur vendredi/samedi
+        if (newDayIndex > 6) return; // Empêcher le drop au-delà de samedi
         const weekStart = moment(currentDate).startOf('week');
         const newDate = weekStart.clone().add(newDayIndex, 'days').format('YYYY-MM-DD');
         const newHeure = TIME_SLOTS[newGridIndex].start;
@@ -576,7 +576,7 @@ const exportHTML = () => {
                                 </td>
                                 {DAYS.map((day, dayIdx) => {
                                     const droppableId = `${dayIdx}-${rowIdx}`;
-                                    const event = localEvents.find((ev: EventData) =>
+                                    const events = localEvents.filter((ev: EventData) =>
                                         moment(ev.date).format('dddd').toLowerCase() === day.toLowerCase() &&
                                         ev.heure_debut === slot.start
                                     );
@@ -585,40 +585,42 @@ const exportHTML = () => {
                                             <Droppable droppableId={droppableId}>
                                                 {(provided) => (
                                                     <div ref={provided.innerRef} {...provided.droppableProps} className="h-full min-h-[48px]">
-                                                        {event ? (
-                                                            <Draggable draggableId={String(event.id)} index={0}>
-                                                                {(provided) => (
-                                                                    <div
-                                                                        ref={provided.innerRef}
-                                                                        {...provided.draggableProps}
-                                                                        {...provided.dragHandleProps}
-                                                                        onDoubleClick={() => {
-                                                                            if (window.confirm('Voulez-vous supprimer ce créneau ?')) {
-                                                                                setLocalEvents(prev => prev.filter(ev => String(ev.id) !== String(event.id)));
-                                                                            }
-                                                                        }}
-                                                                        className="flex flex-col gap-1 bg-indigo-50 border border-indigo-200 rounded-lg p-2 shadow-sm cursor-move"
-                                                                    >
-                                                                        <span className="inline-block bg-indigo-100 text-indigo-800 text-xs font-bold px-2 py-1 rounded-lg mb-1 shadow-sm">
-                                                                            {event.cours?.nom}
-                                                                        </span>
-                                                                        <span className="text-xs text-gray-700 font-medium">{event.enseignants?.nom}</span>
-                                                                        <span className="text-xs text-gray-500">{event.salles?.nom}</span>
-                                                                        <div>Groupe : {event.groupe?.nom}</div>
-                                                                        {event.type && (
-                                                                            <span className={`text-[10px] ${getTypeColor(event.type).bg} ${getTypeColor(event.type).text} ${getTypeColor(event.type).border} border rounded px-2 py-1 mt-1 font-semibold`}>
-                                                                                {event.type}
+                                                        {events.length > 0 ? (
+                                                            events.map((event, index) => (
+                                                                <Draggable key={String(event.id)} draggableId={String(event.id)} index={index}>
+                                                                    {(provided) => (
+                                                                        <div
+                                                                            ref={provided.innerRef}
+                                                                            {...provided.draggableProps}
+                                                                            {...provided.dragHandleProps}
+                                                                            onDoubleClick={() => {
+                                                                                if (window.confirm('Voulez-vous supprimer ce créneau ?')) {
+                                                                                    setLocalEvents(prev => prev.filter(ev => String(ev.id) !== String(event.id)));
+                                                                                }
+                                                                            }}
+                                                                            className={`flex flex-col gap-1 bg-indigo-50 border border-indigo-200 rounded-lg p-2 shadow-sm cursor-move ${index > 0 ? 'mt-1' : ''}`}
+                                                                        >
+                                                                            <span className="inline-block bg-indigo-100 text-indigo-800 text-xs font-bold px-2 py-1 rounded-lg mb-1 shadow-sm">
+                                                                                {event.cours?.nom}
                                                                             </span>
-                                                                        )}
-                                                                    </div>
-                                                                )}
-                                                            </Draggable>
+                                                                            <span className="text-xs text-gray-700 font-medium">{event.enseignants?.nom}</span>
+                                                                            <span className="text-xs text-gray-500">{event.salles?.nom}</span>
+                                                                            <div className="text-xs text-gray-600">Groupe : {event.groupe?.nom}</div>
+                                                                            {event.type && (
+                                                                                <span className={`text-[10px] ${getTypeColor(event.type).bg} ${getTypeColor(event.type).text} ${getTypeColor(event.type).border} border rounded px-2 py-1 mt-1 font-semibold`}>
+                                                                                    {event.type}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    )}
+                                                                </Draggable>
+                                                            ))
                                                         ) : (
                                                             <span className="text-gray-300 text-xs">—</span>
                                                         )}
                                                         {provided.placeholder}
-                                                </div>
-                                            )}
+                                                    </div>
+                                                )}
                                             </Droppable>
                                         </td>
                                     );

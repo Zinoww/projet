@@ -26,6 +26,9 @@ export default function GenerationPage() {
     const [selectedPromotion, setSelectedPromotion] = useState('')
     const [selectedSection, setSelectedSection] = useState('')
     const [selectedGroupe, setSelectedGroupe] = useState('')
+    
+    // État pour le nombre de séances à planifier
+    const [nombreSeances, setNombreSeances] = useState<number>(0)
 
     // Charger les filières
     useEffect(() => {
@@ -151,7 +154,12 @@ export default function GenerationPage() {
         setMessage('')
         setDiagnostic('')
         
-        const success = await genererEmploiDuTemps(selectedSection, setMessage, selectedPromotion)
+        const success = await genererEmploiDuTemps(
+            selectedSection, 
+            setMessage, 
+            selectedPromotion, 
+            nombreSeances > 0 ? nombreSeances : undefined
+        )
         
         if (success) {
             setMessage('Génération terminée avec succès !')
@@ -337,6 +345,26 @@ export default function GenerationPage() {
                                     ))}
                                 </select>
                             </div>
+                        </div>
+
+                        {/* Nombre de séances à planifier */}
+                        <div className="mb-6">
+                            <label htmlFor="nombreSeances" className="block text-sm font-medium text-gray-700 mb-2">
+                                Nombre de séances à planifier :
+                            </label>
+                            <input
+                                type="number"
+                                id="nombreSeances"
+                                value={nombreSeances || ''}
+                                onChange={(e) => setNombreSeances(parseInt(e.target.value) || 0)}
+                                min="0"
+                                placeholder="0 = toutes les séances"
+                                className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                disabled={loading}
+                            />
+                            <p className="text-sm text-gray-500 mt-1">
+                                Laissez 0 ou vide pour planifier toutes les séances disponibles
+                            </p>
                         </div>
 
                         {selectedSection && (

@@ -24,13 +24,13 @@ type EventData = {
 };
 
 const joursSemaine: { [key: string]: number } = {
+    'Dimanche': 0,
     'Lundi': 1,
     'Mardi': 2,
     'Mercredi': 3,
     'Jeudi': 4,
     'Vendredi': 5,
-    'Samedi': 6,
-    'Dimanche': 7
+    'Samedi': 6
 };
 
 export default function EmploiDuTempsPage() {
@@ -61,24 +61,19 @@ export default function EmploiDuTempsPage() {
 
     // Fonction fetchTimetable avec useCallback pour éviter les re-renders infinis
     const fetchTimetable = useCallback(async (filiereId: string, promotion: string, sectionId: string, groupeId: string) => {
-        console.log('fetchTimetable appelé avec:', { filiereId, promotion, sectionId, groupeId });
         setLoading(true);
         setMessage('');
 
         let targetGroupeIds: string[] = [];
 
-        if (groupeId) {
-            // Un groupe spécifique est sélectionné
-            targetGroupeIds = [groupeId];
-            const groupe = groupes.find(g => g.id === groupeId)
-            setCurrentTitle(`Emploi du temps - ${groupe?.nom || ''}`)
-        } else if (sectionId) {
-            // Une section est sélectionnée, prendre tous les groupes de cette section et promotion
+        if (sectionId) {
+            // Une section est sélectionnée, prendre tous les groupes de cette section (comme dans la génération)
+            // Ne pas filtrer par niveau pour être cohérent avec la génération
             const { data, error } = await supabase
                 .from('groupes')
                 .select('id')
                 .eq('section_id', sectionId)
-                .eq('niveau', promotion)
+                // .eq('niveau', promotion)  // ← Supprimé pour être cohérent avec la génération
             
             if (error || !data) {
                 setMessage('Erreur: Impossible de charger les groupes de la section.');
@@ -87,7 +82,14 @@ export default function EmploiDuTempsPage() {
             }
             targetGroupeIds = data.map(g => g.id);
             const section = sections.find(s => s.id === sectionId)
-            setCurrentTitle(`Emploi du temps - ${section?.nom || ''} (${promotion})`)
+            
+            if (groupeId) {
+                // Un groupe spécifique est sélectionné pour l'affichage, mais on garde tous les groupes pour la récupération
+                const groupe = groupes.find(g => g.id === groupeId)
+                setCurrentTitle(`Emploi du temps - ${groupe?.nom || ''}`)
+            } else {
+                setCurrentTitle(`Emploi du temps - ${section?.nom || ''} (${promotion})`)
+            }
         } else {
             // Rien n'est sélectionné pour l'affichage
             setEvents([]);
@@ -95,7 +97,6 @@ export default function EmploiDuTempsPage() {
             return;
         }
 
-        console.log('targetGroupeIds:', targetGroupeIds);
         if (targetGroupeIds.length === 0) {
             setEvents([]);
             setMessage('Aucun groupe à afficher pour la sélection actuelle.');
@@ -105,42 +106,63 @@ export default function EmploiDuTempsPage() {
 
         // 1. Récupérer les séances du ou des groupes sélectionnés
         let groupesIdsToFetch = targetGroupeIds;
-        console.log('groupesIdsToFetch:', groupesIdsToFetch);
-        console.log('groupesIdsToFetch type:', typeof groupesIdsToFetch[0]);
+        
+        console.log('Debug - Groupes IDs à récupérer:', groupesIdsToFetch);
+        console.log('Debug - Section ID:', sectionId);
+        console.log('Debug - Promotion:', promotion);
+        console.log('Debug - Nombre de séances demandé (récupération):', nombreSeances);
+        
         const { data: seances, error: seancesError } = await supabase
             .from('seances')
             .select('id, cours(nom), types_seances(nom), enseignants(nom), groupes(id, nom)')
             .in('groupe_id', groupesIdsToFetch);
-        console.log('seances trouvées:', seances);
-        console.log('Séances trouvées pour ce groupe:', seances);
-        console.log('seancesError:', seancesError);
+        
+        console.log('Debug - Séances trouvées:', seances);
+        console.log('Debug - Nombre de séances trouvées:', seances?.length || 0);
+        console.log('Debug - Erreur séances:', seancesError);
+        
         if (seancesError || !seances || seances.length === 0) {
-            setMessage('Aucune séance trouvée pour ce groupe ou cette section.');
+            setMessage(`Aucune séance trouvée pour ce groupe ou cette section. Groupes: ${groupesIdsToFetch.join(', ')}`);
             setEvents([]);
             setLoading(false);
             return;
         }
-        // 2. Récupérer les emplois du temps pour ces séances
-        const seanceIds = seances.map(s => s.id); // Garder en string
-        console.log('seanceIds:', seanceIds);
+        
+        // 2. Récupérer TOUS les emplois du temps pour cette section
         const { data: emploiData, error } = await supabase
             .from('emplois_du_temps')
             .select('*')
-            .in('seance_id', seanceIds);
-        console.log('emploiData:', emploiData);
-        console.log('emploiError:', error);
+            .in('seance_id', seances.map(s => s.id));
+        
+        console.log('Debug - Emplois du temps trouvés:', emploiData);
+        console.log('Debug - Erreur emplois du temps:', error);
+        
         if (error || !emploiData || emploiData.length === 0) {
-            if (seances && seances.length > 0) {
-                setMessage(`Aucun emploi du temps trouvé pour ${seances.length} séance(s). Veuillez générer l'emploi du temps d'abord.`);
-            } else {
-                setMessage('Erreur lors du chargement de l\'emploi du temps.');
-            }
+            setMessage(`Aucun emploi du temps trouvé. Veuillez générer l'emploi du temps d'abord.`);
             setEvents([]);
             setLoading(false);
             return;
         }
-        // 3. Récupérer les salles concernées
-        const salleIds = Array.from(new Set((emploiData || []).map(e => e.salle_id).filter(Boolean)));
+        
+        // 3. Limiter l'affichage au nombre demandé
+        let emploiDataFiltre = emploiData;
+        if (nombreSeances && nombreSeances > 0) {
+            emploiDataFiltre = emploiData.slice(0, nombreSeances);
+            console.log(`Debug - Limitation de l'affichage à ${nombreSeances} événements sur ${emploiData.length} trouvés`);
+        }
+        
+        console.log('Debug - Emplois du temps trouvés:', emploiData);
+        console.log('Debug - Erreur emplois du temps:', error);
+        
+        if (error || !emploiData || emploiData.length === 0) {
+            setMessage(`Aucun emploi du temps trouvé. Veuillez générer l'emploi du temps d'abord.`);
+            setEvents([]);
+            setLoading(false);
+            return;
+        }
+        
+        // 4. Récupérer les salles concernées
+        const salleIds = Array.from(new Set((emploiDataFiltre || []).map(e => e.salle_id).filter(Boolean)));
         const { data: salles } = await supabase
             .from('salles')
             .select('id, nom')
@@ -148,21 +170,37 @@ export default function EmploiDuTempsPage() {
         const seancesMap = Object.fromEntries((seances || []).map(s => [s.id, s]));
         const sallesMap = Object.fromEntries((salles || []).map(s => [Number(s.id), s]));
         const weekStart = currentWeek.clone().startOf('isoWeek');
-        console.log('emploiData', emploiData);
-        console.log('seances', seances);
-        const formattedEvents = (emploiData || []).map(data => {
+        console.log('Debug - Emplois du temps avant formatage:', emploiDataFiltre);
+        console.log('Debug - SeancesMap:', seancesMap);
+        console.log('Debug - SallesMap:', sallesMap);
+        
+        const formattedEvents = (emploiDataFiltre || []).map((data, index) => {
+            console.log(`Debug - Formatage événement ${index}:`, data);
+            
             const seance = seancesMap[data.seance_id];
+            console.log(`Debug - Séance trouvée pour ${data.seance_id}:`, seance);
+            
             const salle = sallesMap[Number(data.salle_id)];
-            if (!seance) return null;
+            console.log(`Debug - Salle trouvée pour ${data.salle_id}:`, salle);
+            
+            if (!seance) {
+                console.log(`Debug - Séance manquante pour ${data.seance_id}`);
+                return null;
+            }
+            
             const dayNumber = joursSemaine[data.jour];
+            console.log(`Debug - Jour "${data.jour}" -> numéro:`, dayNumber);
+            
             let eventDate;
-            if (!dayNumber) {
-                console.error(`Jour non reconnu: ${data.jour}`);
+            if (dayNumber === undefined || dayNumber === null) {
+                console.log(`Debug - Jour invalide: "${data.jour}"`);
                 return null;
             } else {
                 eventDate = weekStart.clone().add(dayNumber - 1, 'days');
+                console.log(`Debug - Date calculée:`, eventDate.format('YYYY-MM-DD'));
             }
-            return {
+            
+            const event = {
                 id: data.id,
                 date: eventDate.format('YYYY-MM-DD'),
                 heure_debut: data.heure_debut ? data.heure_debut.substring(0, 5) : '00:00',
@@ -173,23 +211,34 @@ export default function EmploiDuTempsPage() {
                 salles: { nom: salle ? salle.nom : 'N/A' },
                 groupe: { nom: typeof seance.groupes === 'object' && seance.groupes !== null && 'nom' in seance.groupes ? (seance.groupes as { nom: string }).nom : 'N/A' },
             };
-        })
+            
+            console.log(`Debug - Événement formaté ${index}:`, event);
+            return event;
+        });
+        
+        console.log('Debug - Événements après formatage (avant filtres):', formattedEvents);
+        
         // D'abord, filtre les nulls
-        .filter((event): event is EventData => event !== null)
-        // Puis filtre pour n'afficher que le groupe sélectionné si besoin
-        .filter(event => !selectedGroupe || event.groupe.nom === (groupes.find(g => String(g.id) === String(selectedGroupe))?.nom || ''));
-        console.log('formattedEvents', formattedEvents);
-        setEvents(formattedEvents);
+        const eventsWithoutNulls = formattedEvents.filter((event): event is EventData => event !== null);
+        console.log('Debug - Événements après filtrage des nulls:', eventsWithoutNulls);
+        
+        // Si un groupe spécifique est sélectionné, filtrer pour n'afficher que ses événements
+        const finalEvents = eventsWithoutNulls.filter(event => {
+            const shouldShow = !selectedGroupe || event.groupe.nom === (groupes.find(g => String(g.id) === String(selectedGroupe))?.nom || '');
+            if (!shouldShow) {
+                console.log(`Debug - Événement filtré par groupe:`, event);
+            }
+            return shouldShow;
+        });
+        
+        console.log('Debug - Événements finaux après tous les filtres:', finalEvents);
+        
+        setEvents(finalEvents);
         setLoading(false);
     }, [currentWeek, groupes, sections]);
     
     // Recharger l'emploi du temps quand la sélection change
     useEffect(() => {
-        console.log('Selection changed:', { selectedFiliere, selectedPromotion, selectedSection, selectedGroupe });
-        console.log('Available data:', { filieres: filieres.length, sections: sections.length, groupes: groupes.length });
-        console.log('Filieres:', filieres);
-        console.log('Sections:', sections);
-        console.log('Groupes:', groupes);
         fetchTimetable(selectedFiliere, selectedPromotion, selectedSection, selectedGroupe);
     }, [selectedFiliere, selectedPromotion, selectedSection, selectedGroupe, fetchTimetable]);
     
@@ -313,7 +362,6 @@ export default function EmploiDuTempsPage() {
                                 </div>
                                 <button 
                                     onClick={() => {
-                                        console.log('Forcing reload...');
                                         setSelectedFiliere('');
                                         setSelectedPromotion('');
                                         setSelectedSection('');
@@ -362,7 +410,7 @@ export default function EmploiDuTempsPage() {
                                 }
                                 setIsGenerating(false);
                                 if (success) {
-                                    setMessage('Emploi du temps généré avec succès !');
+                                    setMessage(`Emploi du temps généré avec succès ! ${nombreSeances} séances demandées.`);
                                     // Recharger l'emploi du temps après génération
                                     await fetchTimetable(selectedFiliere, selectedPromotion, selectedSection, selectedGroupe);
                                 }
@@ -371,6 +419,8 @@ export default function EmploiDuTempsPage() {
                         >
                             <FaCogs /> Générer automatiquement
                         </button>
+                        
+                        {/* Bouton de détection des conflits supprimé */}
                     </div>
 
                     <div className="flex justify-between items-center mb-4">
@@ -388,6 +438,8 @@ export default function EmploiDuTempsPage() {
                            {message}
                         </div>
                     )}
+
+                    {/* Debug info retirée pour un rendu plus propre */}
 
                 {loading ? (
                         <div className="text-center py-10">
