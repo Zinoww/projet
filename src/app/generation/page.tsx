@@ -1,7 +1,7 @@
 'use client'
 import { supabase } from '@/src/lib/supabaseClient'
 import { useState, useEffect } from 'react'
-import { genererEmploiDuTemps, diagnostiquerDonneesSimple, verifierCohérence, testerAlgorithmeAvance } from '@/src/lib/generation'
+import { genererEmploiDuTemps, diagnostiquerDonneesSimple, verifierCohérence } from '@/src/lib/generation'
 import Header from '@/src/components/Header'
 import AuthGuard from '@/src/components/AuthGuard'
 import { FaCogs } from 'react-icons/fa'
@@ -9,24 +9,28 @@ import { FaCogs } from 'react-icons/fa'
 interface Filiere { id: string; nom: string }
 interface Section { id: string; nom: string }
 interface Groupe { id: string; nom: string }
+interface TestResult {
+    success: boolean;
+    details: string;
+}
 
 export default function GenerationPage() {
     const [loading, setLoading] = useState(false)
     const [message, setMessage] = useState('')
     const [diagnostic, setDiagnostic] = useState('')
-    
+
     // États pour la hiérarchie de sélection
     const [filieres, setFilieres] = useState<Filiere[]>([])
     const [promotions, setPromotions] = useState<string[]>([])
     const [sections, setSections] = useState<Section[]>([])
     const [groupes, setGroupes] = useState<Groupe[]>([])
-    
+
     // États pour les sélections
     const [selectedFiliere, setSelectedFiliere] = useState('')
     const [selectedPromotion, setSelectedPromotion] = useState('')
     const [selectedSection, setSelectedSection] = useState('')
     const [selectedGroupe, setSelectedGroupe] = useState('')
-    
+
     // État pour le nombre de séances à planifier
     const [nombreSeances, setNombreSeances] = useState<number>(0)
 
@@ -59,7 +63,7 @@ export default function GenerationPage() {
             }
 
             const sectionIds = sectionsInFiliere.map(s => s.id)
-            
+
             const { data, error } = await supabase
                 .from('groupes')
                 .select('niveau')
@@ -103,10 +107,10 @@ export default function GenerationPage() {
             if (groupesError || !groupesWithNiveau || groupesWithNiveau.length === 0) {
                 setSections([]); setLoading(false); return;
             }
-            
+
             const relevantSectionIds = [...new Set(groupesWithNiveau.map(g => g.section_id).filter(Boolean))]
 
-            if(relevantSectionIds.length > 0) {
+            if (relevantSectionIds.length > 0) {
                 const { data: finalSections, error: finalSectionsError } = await supabase
                     .from('sections')
                     .select('id, nom')
@@ -136,7 +140,7 @@ export default function GenerationPage() {
                 .eq('section_id', selectedSection)
                 .eq('niveau', selectedPromotion)
                 .order('nom')
-            
+
             if (error) setGroupes([])
             else setGroupes(data || [])
             setLoading(false)
@@ -146,21 +150,20 @@ export default function GenerationPage() {
 
     const lancerGeneration = async () => {
         if (!selectedSection) {
-            setMessage('Veuillez sélectionner une section.')
+            setMessage("Veuillez sélectionner une section.")
             return
         }
 
         setLoading(true)
         setMessage('')
         setDiagnostic('')
-        
+
         const success = await genererEmploiDuTemps(
-            selectedSection, 
-            setMessage, 
-            selectedPromotion, 
-            nombreSeances > 0 ? nombreSeances : undefined
+            selectedSection,
+            setMessage,
+            selectedPromotion
         )
-        
+
         if (success) {
             setMessage('Génération terminée avec succès !')
         }
@@ -177,9 +180,9 @@ export default function GenerationPage() {
         setLoading(true)
         setMessage('')
         setDiagnostic('')
-        
+
         try {
-            const timeoutPromise = new Promise((_, reject) => 
+            const timeoutPromise = new Promise((_, reject) =>
                 setTimeout(() => reject(new Error('Timeout: La requête a pris trop de temps')), 10000)
             );
             const diagnosticPromise = diagnostiquerDonneesSimple(selectedSection);
@@ -196,7 +199,7 @@ export default function GenerationPage() {
         setMessage('')
         setDiagnostic('')
         try {
-            const timeoutPromise = new Promise((_, reject) => 
+            const timeoutPromise = new Promise((_, reject) =>
                 setTimeout(() => reject(new Error('Timeout: La requête a pris trop de temps')), 10000)
             );
             const cohérencePromise = verifierCohérence();
@@ -217,21 +220,22 @@ export default function GenerationPage() {
         setLoading(true)
         setMessage('🧪 Test de l\'algorithme avancé en cours...')
         setDiagnostic('')
-        
+
         try {
-            const timeoutPromise = new Promise((_, reject) => 
+            const timeoutPromise = new Promise((_, reject) =>
                 setTimeout(() => reject(new Error('Timeout: Le test a pris trop de temps')), 30000)
             );
-            
-            const testPromise = testerAlgorithmeAvance(selectedSection, setMessage, selectedPromotion);
-            const resultat = await Promise.race([testPromise, timeoutPromise]) as any;
-            
+
+            const { testerAlgorithmeAvancee } = await import('@/src/lib/generation');
+            const testPromise = testerAlgorithmeAvancee(selectedSection, setMessage);
+            const resultat = await Promise.race([testPromise, timeoutPromise]) as TestResult;
+
             if (resultat.success) {
                 setDiagnostic(resultat.details);
-                setMessage(`✅ Test réussi ! ${resultat.planning.length} séances placées.`);
+                setMessage(`✅ Test de cohérence réussi ! ${resultat.details.includes('❌') ? 'Problèmes détectés' : 'Données cohérentes'}`);
             } else {
                 setDiagnostic(`❌ Test échoué: ${resultat.details}`);
-                setMessage('❌ Le test de l\'algorithme a échoué.');
+                setMessage('❌ Le test de cohérence a échoué.');
             }
         } catch (error) {
             setDiagnostic(`❌ Erreur lors du test: ${error}\n\nEssayez de rafraîchir la page ou vérifiez votre connexion.`);
@@ -248,7 +252,7 @@ export default function GenerationPage() {
                     <h1 className="text-2xl font-bold mb-4 text-center">Génération automatique</h1>
                     <div className="bg-white p-6 rounded-2xl shadow-xl mb-8 border border-indigo-100">
                         <h2 className="text-lg font-semibold mb-4 text-gray-800">Sélection hiérarchique</h2>
-                        
+
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                             {/* Filière */}
                             <div>
@@ -372,15 +376,15 @@ export default function GenerationPage() {
                                 <h3 className="font-semibold text-blue-800 mb-2">Sélection actuelle :</h3>
                                 <p className="text-blue-700">
                                     <strong>Filière :</strong> {
-                                        selectedFiliere ? 
-                                        (filieres.find(f => String(f.id) === String(selectedFiliere))?.nom || `ID: ${selectedFiliere}`) : 
-                                        ''
+                                        selectedFiliere ?
+                                            (filieres.find(f => String(f.id) === String(selectedFiliere))?.nom || `ID: ${selectedFiliere}`) :
+                                            ''
                                     } |
-                                    <strong> Promotion :</strong> {selectedPromotion} | 
+                                    <strong> Promotion :</strong> {selectedPromotion} |
                                     <strong> Section :</strong> {
-                                        selectedSection ? 
-                                        (sections.find(s => String(s.id) === String(selectedSection))?.nom || `ID: ${selectedSection}`) : 
-                                        ''
+                                        selectedSection ?
+                                            (sections.find(s => String(s.id) === String(selectedSection))?.nom || `ID: ${selectedSection}`) :
+                                            ''
                                     }
                                     {selectedGroupe && ` | Groupe : ${groupes.find(g => String(g.id) === String(selectedGroupe))?.nom || `ID: ${selectedGroupe}`}`}
                                 </p>
@@ -403,7 +407,7 @@ export default function GenerationPage() {
                                 className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                             >
                                 <FaCogs className="text-lg" />
-                                🧪 Tester l'algorithme avancé
+                                🧪 Tester l’algorithme avancé
                             </button>
                             <button
                                 onClick={lancerDiagnostic}
@@ -434,7 +438,7 @@ export default function GenerationPage() {
                             </div>
                         )}
                     </div>
-                    
+
                     {diagnostic && (
                         <div className="bg-white p-6 rounded-2xl shadow-xl border border-indigo-100">
                             <h2 className="text-xl font-bold mb-4">Résultat du diagnostic / test</h2>
@@ -448,3 +452,5 @@ export default function GenerationPage() {
         </AuthGuard>
     )
 }
+
+

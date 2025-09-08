@@ -52,7 +52,7 @@ export default function EnseignantsPage() {
             return null
         }
     }
-    
+
     const handleImportExcel = async (e: ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -74,7 +74,7 @@ export default function EnseignantsPage() {
                     if (!row.nom || typeof row.nom !== 'string' || row.nom.trim() === '') {
                         throw new Error('Chaque ligne doit avoir un "nom" valide.');
                     }
-                    
+
                     let disponibilitesJson = null;
                     if (row.disponibilites) {
                         try {
@@ -119,7 +119,7 @@ export default function EnseignantsPage() {
             setError('Le nom est obligatoire.')
             return
         }
-        
+
         const disponibilitesJson = handleJsonParse(newEnseignant.disponibilites)
         if (newEnseignant.disponibilites && !disponibilitesJson) {
             setError('Le format JSON pour les disponibilités est invalide.')
@@ -129,13 +129,13 @@ export default function EnseignantsPage() {
         setError(null)
         setSuccess(null)
 
-        const { data, error } = await supabase.from('enseignants').insert([{ 
+        const { data, error } = await supabase.from('enseignants').insert([{
             nom: newEnseignant.nom.trim(),
             email: newEnseignant.email.trim() || null,
             heures_travail: newEnseignant.heures_travail ? parseInt(newEnseignant.heures_travail) : null,
             disponibilites: disponibilitesJson
         }]).select()
-        
+
         if (error) {
             setError(`Erreur lors de l&apos;ajout: ${error.message}`)
         } else if (data) {
@@ -158,7 +158,7 @@ export default function EnseignantsPage() {
             setError(null)
         }
     }
-    
+
     const startEditing = (enseignant: Enseignant) => {
         setEditingEnseignant({
             ...enseignant,
@@ -181,8 +181,8 @@ export default function EnseignantsPage() {
 
         const { data, error } = await supabase
             .from('enseignants')
-            .update({ 
-                nom: editingEnseignant.nom.trim(), 
+            .update({
+                nom: editingEnseignant.nom.trim(),
                 email: editingEnseignant.email?.trim() || null,
                 heures_travail: editingEnseignant.heures_travail ? Number(editingEnseignant.heures_travail) : null,
                 disponibilites: disponibilitesJson
@@ -209,7 +209,7 @@ export default function EnseignantsPage() {
                         <FaChalkboardTeacher className="text-3xl text-indigo-500 mr-4" />
                         <h1 className="text-4xl font-bold text-gray-800">Gestion des Enseignants</h1>
                     </div>
-                     <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-4">
                         <input
                             type="file"
                             accept=".xlsx, .xls"
@@ -225,7 +225,7 @@ export default function EnseignantsPage() {
                             Importer
                         </label>
                         <Link href="/" className="flex items-center text-indigo-600 hover:text-indigo-800">
-                            <FaArrowLeft className="mr-2"/>
+                            <FaArrowLeft className="mr-2" />
                             Retour &agrave; l&#39;accueil
                         </Link>
                     </div>
@@ -242,10 +242,10 @@ export default function EnseignantsPage() {
                             <input type="number" value={newEnseignant.heures_travail} onChange={(e) => setNewEnseignant({ ...newEnseignant, heures_travail: e.target.value })} placeholder="Heures de service" className="w-full p-2 border rounded-lg" />
                         </div>
                         <input type="email" value={newEnseignant.email} onChange={(e) => setNewEnseignant({ ...newEnseignant, email: e.target.value })} placeholder="Adresse e-mail" className="w-full p-2 border rounded-lg" />
-                        <textarea value={newEnseignant.disponibilites} onChange={(e) => setNewEnseignant({ ...newEnseignant, disponibilites: e.target.value })} placeholder='Indisponibilités (Format JSON), ex: {"Jeudi": true, "Samedi": true}' className="w-full p-2 border rounded-lg font-mono text-sm" rows={3}/>
-                        <p className="text-xs text-gray-500 mt-1 mb-2">Indiquez uniquement les jours où l'enseignant n'est <b>pas disponible</b>. Exemple : {'{"Jeudi": true, "Samedi": true}'}</p>
+                        <textarea value={newEnseignant.disponibilites} onChange={(e) => setNewEnseignant({ ...newEnseignant, disponibilites: e.target.value })} placeholder='Indisponibilités (Format JSON), ex: {"Jeudi": true, "Samedi": true}' className="w-full p-2 border rounded-lg font-mono text-sm" rows={3} />
+                        <p className="text-xs text-gray-500 mt-1 mb-2">Indiquez uniquement les jours où l’enseignant n’est <b>pas disponible</b>. Exemple : {'{"Jeudi": true, "Samedi": true}'}</p>
                         <button type="submit" className="w-full md:w-auto bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center justify-center">
-                            <FaPlus className="mr-2"/> Ajouter
+                            <FaPlus className="mr-2" /> Ajouter
                         </button>
                     </form>
                 </div>
@@ -266,14 +266,14 @@ export default function EnseignantsPage() {
                                     <tr key={enseignant.id} className="hover:bg-gray-50">
                                         {editingEnseignant?.id === enseignant.id ? (
                                             <td colSpan={4} className="px-5 py-4 border-b">
-                                                 <form onSubmit={handleUpdateEnseignant} className="space-y-3">
+                                                <form onSubmit={handleUpdateEnseignant} className="space-y-3">
                                                     <div className="grid grid-cols-3 gap-3">
-                                                        <input type="text" value={editingEnseignant.nom} onChange={(e) => setEditingEnseignant({...editingEnseignant, nom: e.target.value})} className="col-span-2 w-full p-1 border rounded" required />
-                                                        <input type="number" value={editingEnseignant.heures_travail || ''} onChange={(e) => setEditingEnseignant({...editingEnseignant, heures_travail: Number(e.target.value)})} className="w-full p-1 border rounded" />
+                                                        <input type="text" value={editingEnseignant.nom} onChange={(e) => setEditingEnseignant({ ...editingEnseignant, nom: e.target.value })} className="col-span-2 w-full p-1 border rounded" required />
+                                                        <input type="number" value={editingEnseignant.heures_travail || ''} onChange={(e) => setEditingEnseignant({ ...editingEnseignant, heures_travail: Number(e.target.value) })} className="w-full p-1 border rounded" />
                                                     </div>
-                                                    <input type="email" value={editingEnseignant.email || ''} onChange={(e) => setEditingEnseignant({...editingEnseignant, email: e.target.value})} className="w-full p-1 border rounded" />
-                                                    <textarea value={editingEnseignant.disponibilites as string} onChange={(e) => setEditingEnseignant({...editingEnseignant, disponibilites: e.target.value})} placeholder='Indisponibilités (Format JSON), ex: {"Jeudi": true, "Samedi": true}' className="w-full p-1 border rounded font-mono text-sm" rows={4} />
-                                                    <p className="text-xs text-gray-500 mt-1 mb-2">Indiquez uniquement les jours où l'enseignant n'est <b>pas disponible</b>. Exemple : {'{"Jeudi": true, "Samedi": true}'}</p>
+                                                    <input type="email" value={editingEnseignant.email || ''} onChange={(e) => setEditingEnseignant({ ...editingEnseignant, email: e.target.value })} className="w-full p-1 border rounded" />
+                                                    <textarea value={editingEnseignant.disponibilites as string} onChange={(e) => setEditingEnseignant({ ...editingEnseignant, disponibilites: e.target.value })} placeholder='Indisponibilités (Format JSON), ex: {"Jeudi": true, "Samedi": true}' className="w-full p-1 border rounded font-mono text-sm" rows={4} />
+                                                    <p className="text-xs text-gray-500 mt-1 mb-2">Indiquez uniquement les jours où l’enseignant n’est <b>pas disponible</b>. Exemple : {'{"Jeudi": true, "Samedi": true}'}</p>
                                                     <div className="flex gap-2 justify-end">
                                                         <button type="submit" className="px-3 py-1 rounded bg-green-500 text-white">Sauver</button>
                                                         <button type="button" onClick={() => setEditingEnseignant(null)} className="px-3 py-1 rounded bg-gray-200">Annuler</button>

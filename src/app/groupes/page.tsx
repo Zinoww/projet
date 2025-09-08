@@ -18,6 +18,7 @@ interface Groupe {
 interface Section {
     id: string
     nom: string
+    filieres: { nom: string } | null
 }
 
 interface ExcelRow {
@@ -47,7 +48,7 @@ export default function GroupesPage() {
 
         const { data: sectionsData, error: sectionsError } = await supabase
             .from('sections')
-            .select('*')
+            .select('*, filieres(nom)')
             .order('nom', { ascending: true })
 
         if (groupesError || sectionsError) {
@@ -140,14 +141,14 @@ export default function GroupesPage() {
 
         const { data, error } = await supabase
             .from('groupes')
-            .insert([{ 
-                nom: newGroupe.nom.trim(), 
+            .insert([{
+                nom: newGroupe.nom.trim(),
                 niveau: newGroupe.niveau ? newGroupe.niveau.trim() : null,
                 specialite: newGroupe.specialite.trim() || null,
-                section_id: newGroupe.section_id 
+                section_id: newGroupe.section_id
             }])
             .select('*, sections(*, filieres(nom))')
-        
+
         if (error) {
             setError(`Erreur lors de l&apos;ajout: ${error.message}`)
         } else if (data) {
@@ -177,8 +178,8 @@ export default function GroupesPage() {
 
         const { data, error } = await supabase
             .from('groupes')
-            .update({ 
-                nom: editingGroupe.nom.trim(), 
+            .update({
+                nom: editingGroupe.nom.trim(),
                 niveau: editingGroupe.niveau ? editingGroupe.niveau.trim() : null,
                 specialite: editingGroupe.specialite?.trim() || null,
                 section_id: editingGroupe.section_id
@@ -221,7 +222,7 @@ export default function GroupesPage() {
                             Importer
                         </label>
                         <Link href="/" className="flex items-center text-indigo-600 hover:text-indigo-800">
-                            <FaArrowLeft className="mr-2"/>
+                            <FaArrowLeft className="mr-2" />
                             Retour &agrave; l&#39;accueil
                         </Link>
                     </div>
@@ -229,7 +230,7 @@ export default function GroupesPage() {
 
                 {error && <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6" role="alert"><p>{error}</p></div>}
                 {success && <div className="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-6" role="alert"><p>{success}</p></div>}
-                
+
                 <div className="bg-white p-6 rounded-lg shadow-md mb-8">
                     <h2 className="text-2xl font-semibold text-gray-700 mb-4">Ajouter un groupe</h2>
                     <form onSubmit={handleAddGroupe} className="space-y-4">
@@ -250,12 +251,12 @@ export default function GroupesPage() {
                             <input type="text" value={newGroupe.specialite} onChange={(e) => setNewGroupe({ ...newGroupe, specialite: e.target.value })} placeholder="Spécialité" className="w-full p-2 border rounded-lg" />
                             <select value={newGroupe.section_id} onChange={(e) => setNewGroupe({ ...newGroupe, section_id: e.target.value })} className="w-full p-2 border rounded-lg" required>
                                 <option value="">-- Choisir une section --</option>
-                                {sections.map(s => <option key={s.id} value={s.id}>{s.nom}</option>)}
+                                {sections.map(s => <option key={s.id} value={s.id}>{s.filieres?.nom} - {s.nom}</option>)}
                             </select>
                             <input type="text" value={newGroupe.nom} onChange={(e) => setNewGroupe({ ...newGroupe, nom: e.target.value })} placeholder="Nom du groupe (ex: G1)" className="w-full p-2 border rounded-lg" required />
                         </div>
                         <button type="submit" className="w-full md:w-auto bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center justify-center">
-                            <FaPlus className="mr-2"/> Ajouter
+                            <FaPlus className="mr-2" /> Ajouter
                         </button>
                     </form>
                 </div>
@@ -278,9 +279,9 @@ export default function GroupesPage() {
                                     <tr key={groupe.id} className="hover:bg-gray-50">
                                         {editingGroupe?.id === groupe.id ? (
                                             <td colSpan={6} className="px-5 py-4 border-b">
-                                                 <form onSubmit={handleUpdateGroupe} className="grid grid-cols-5 gap-3 items-center">
+                                                <form onSubmit={handleUpdateGroupe} className="grid grid-cols-5 gap-3 items-center">
                                                     <select value={editingGroupe.section_id} onChange={(e) => setEditingGroupe({ ...editingGroupe, section_id: e.target.value })} className="w-full p-1 border rounded">
-                                                         {sections.map(s => <option key={s.id} value={s.id}>{s.nom}</option>)}
+                                                        {sections.map(s => <option key={s.id} value={s.id}>{s.filieres?.nom} - {s.nom}</option>)}
                                                     </select>
                                                     <input
                                                         type="text"

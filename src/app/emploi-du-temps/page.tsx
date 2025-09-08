@@ -34,7 +34,6 @@ const joursSemaine: { [key: string]: number } = {
 };
 
 export default function EmploiDuTempsPage() {
-    // Utiliser le hook de sélection hiérarchique
     const {
         filieres,
         promotions,
@@ -50,16 +49,20 @@ export default function EmploiDuTempsPage() {
         setSelectedGroupe,
         loading: selectionLoading
     } = useHierarchicalSelection()
-    
+
     const [events, setEvents] = useState<EventData[]>([])
     const [message, setMessage] = useState<string>('')
     const [loading, setLoading] = useState<boolean>(true)
     const [isGenerating, setIsGenerating] = useState<boolean>(false)
     const [currentWeek, setCurrentWeek] = useState(moment().startOf('week'))
     const [currentTitle, setCurrentTitle] = useState<string>('Emploi du temps')
-    const [nombreSeances, setNombreSeances] = useState(10);
 
-    // Fonction fetchTimetable avec useCallback pour éviter les re-renders infinis
+    // Debug logging for events state changes
+    useEffect(() => {
+        console.log('🔍 DEBUG - emploi-du-temps page - Events state changed:', events);
+        console.log('🔍 DEBUG - emploi-du-temps page - Events length:', events.length);
+    }, [events]);
+
     const fetchTimetable = useCallback(async (filiereId: string, promotion: string, sectionId: string, groupeId: string) => {
         setLoading(true);
         setMessage('');
@@ -67,14 +70,11 @@ export default function EmploiDuTempsPage() {
         let targetGroupeIds: string[] = [];
 
         if (sectionId) {
-            // Une section est sélectionnée, prendre tous les groupes de cette section (comme dans la génération)
-            // Ne pas filtrer par niveau pour être cohérent avec la génération
             const { data, error } = await supabase
                 .from('groupes')
                 .select('id')
                 .eq('section_id', sectionId)
-                // .eq('niveau', promotion)  // ← Supprimé pour être cohérent avec la génération
-            
+
             if (error || !data) {
                 setMessage('Erreur: Impossible de charger les groupes de la section.');
                 setLoading(false);
@@ -82,16 +82,14 @@ export default function EmploiDuTempsPage() {
             }
             targetGroupeIds = data.map(g => g.id);
             const section = sections.find(s => s.id === sectionId)
-            
+
             if (groupeId) {
-                // Un groupe spécifique est sélectionné pour l'affichage, mais on garde tous les groupes pour la récupération
                 const groupe = groupes.find(g => g.id === groupeId)
                 setCurrentTitle(`Emploi du temps - ${groupe?.nom || ''}`)
             } else {
                 setCurrentTitle(`Emploi du temps - ${section?.nom || ''} (${promotion})`)
             }
         } else {
-            // Rien n'est sélectionné pour l'affichage
             setEvents([]);
             setLoading(false);
             return;
@@ -104,102 +102,149 @@ export default function EmploiDuTempsPage() {
             return;
         }
 
-        // 1. Récupérer les séances du ou des groupes sélectionnés
-        let groupesIdsToFetch = targetGroupeIds;
-        
-        console.log('Debug - Groupes IDs à récupérer:', groupesIdsToFetch);
-        console.log('Debug - Section ID:', sectionId);
-        console.log('Debug - Promotion:', promotion);
-        console.log('Debug - Nombre de séances demandé (récupération):', nombreSeances);
-        
-        const { data: seances, error: seancesError } = await supabase
+        console.log('🔍 DEBUG - Recherche de séances pour les groupes:', targetGroupeIds);
+
+        const result = await supabase
             .from('seances')
             .select('id, cours(nom), types_seances(nom), enseignants(nom), groupes(id, nom)')
-            .in('groupe_id', groupesIdsToFetch);
-        
-        console.log('Debug - Séances trouvées:', seances);
-        console.log('Debug - Nombre de séances trouvées:', seances?.length || 0);
-        console.log('Debug - Erreur séances:', seancesError);
-        
+            .in('groupe_id', targetGroupeIds);
+
+        let seances = result.data;
+        const seancesError = result.error;
+
+        console.log('🔍 DEBUG - Résultat de la requête séances:', { seances, seancesError });
+
         if (seancesError || !seances || seances.length === 0) {
-            setMessage(`Aucune séance trouvée pour ce groupe ou cette section. Groupes: ${groupesIdsToFetch.join(', ')}`);
+            console.log('⚠️ DEBUG - Aucune séance trouvée');
+            setMessage(`Aucune séance trouvée pour ce groupe ou cette section. Groupes: ${targetGroupeIds.join(', ')}`);
             setEvents([]);
             setLoading(false);
             return;
         }
-        
-        // 2. Récupérer TOUS les emplois du temps pour cette section
+
+        console.log('✅ DEBUG - Séances trouvées:', seances.length, 'séances');
+
+        console.log('🔍 DEBUG - Recherche d\'emplois du temps pour les séances:', seances.map(s => s.id));
+
+        console.log('🔍 DEBUG - Checking emplois_du_temps table...');
+        const { data: allEmploiData } = await supabase
+            .from('emplois_du_temps')
+            .select('*');
+
+        console.log('🔍 DEBUG - All emplois_du_temps entries:', allEmploiData);
+        console.log('🔍 DEBUG - Session IDs to match:', seances.map(s => s.id));
+
+        // Debug: Check if the session IDs in emplois_du_temps match our fetched sessions
+        const emploiSeanceIds = allEmploiData?.map(e => e.seance_id) || [];
+        const fetchedSeanceIds = seances.map(s => s.id);
+        const matchingIds = emploiSeanceIds.filter(id => fetchedSeanceIds.includes(id));
+        const nonMatchingIds = emploiSeanceIds.filter(id => !fetchedSeanceIds.includes(id));
+
+        console.log('🔍 DEBUG - Matching session IDs:', matchingIds);
+        console.log('🔍 DEBUG - Non-matching session IDs in emplois_du_temps:', nonMatchingIds);
+        console.log('🔍 DEBUG - Current week start:', currentWeek.clone().startOf('isoWeek').format('YYYY-MM-DD'));
+        console.log('🔍 DEBUG - Current week number:', currentWeek.isoWeek());
+
+        // First try to find timetable entries for the current sessions
         const { data: emploiData, error } = await supabase
             .from('emplois_du_temps')
             .select('*')
             .in('seance_id', seances.map(s => s.id));
-        
-        console.log('Debug - Emplois du temps trouvés:', emploiData);
-        console.log('Debug - Erreur emplois du temps:', error);
-        
+
+        console.log('🔍 DEBUG - Résultat de la requête emplois_du_temps:', { emploiData, error });
+
+        let finalEmploiData = emploiData;
+
+        // If no timetable entries found for current sessions, try to find entries for the current section's groups
         if (error || !emploiData || emploiData.length === 0) {
-            setMessage(`Aucun emploi du temps trouvé. Veuillez générer l'emploi du temps d'abord.`);
+            console.log('⚠️ DEBUG - Aucun emploi du temps trouvé pour les séances actuelles, recherche pour la section...');
+
+            // Get all sessions for the current section
+            const { data: allSectionSeances, error: sectionSeancesError } = await supabase
+                .from('seances')
+                .select('id, cours(nom), types_seances(nom), enseignants(nom), groupes(id, nom)')
+                .in('groupe_id', targetGroupeIds);
+
+            if (!sectionSeancesError && allSectionSeances && allSectionSeances.length > 0) {
+                console.log('🔍 DEBUG - Toutes les séances de la section:', allSectionSeances.length);
+
+                const { data: sectionEmploiData, error: sectionError } = await supabase
+                    .from('emplois_du_temps')
+                    .select('*')
+                    .in('seance_id', allSectionSeances.map(s => s.id));
+
+                if (!sectionError && sectionEmploiData && sectionEmploiData.length > 0) {
+                    console.log('✅ DEBUG - Emploi du temps trouvé pour la section:', sectionEmploiData.length, 'entrées');
+                    finalEmploiData = sectionEmploiData;
+                    // Update seances to include all section sessions for proper mapping
+                    seances = allSectionSeances;
+                } else {
+                    console.log('⚠️ DEBUG - Aucune entrée emploi du temps pour les séances de la section');
+                }
+            } else {
+                console.log('⚠️ DEBUG - Aucune séance trouvée pour la section');
+            }
+        }
+
+        // If still no data found, show a helpful message
+        if (!finalEmploiData || finalEmploiData.length === 0) {
+            console.log('⚠️ DEBUG - Aucun emploi du temps trouvé pour cette section');
+            setMessage(`Aucun emploi du temps trouvé pour cette section. Veuillez générer l'emploi du temps d'abord en cliquant sur "Générer automatiquement".`);
             setEvents([]);
             setLoading(false);
             return;
         }
-        
-        // 3. Limiter l'affichage au nombre demandé
-        let emploiDataFiltre = emploiData;
-        if (nombreSeances && nombreSeances > 0) {
-            emploiDataFiltre = emploiData.slice(0, nombreSeances);
-            console.log(`Debug - Limitation de l'affichage à ${nombreSeances} événements sur ${emploiData.length} trouvés`);
-        }
-        
-        console.log('Debug - Emplois du temps trouvés:', emploiData);
-        console.log('Debug - Erreur emplois du temps:', error);
-        
-        if (error || !emploiData || emploiData.length === 0) {
-            setMessage(`Aucun emploi du temps trouvé. Veuillez générer l'emploi du temps d'abord.`);
-            setEvents([]);
-            setLoading(false);
-            return;
-        }
-        
-        // 4. Récupérer les salles concernées
-        const salleIds = Array.from(new Set((emploiDataFiltre || []).map(e => e.salle_id).filter(Boolean)));
+
+        console.log('✅ DEBUG - Emploi du temps final:', finalEmploiData.length, 'entrées');
+
+        console.log('✅ DEBUG - Emplois du temps trouvés:', finalEmploiData.length, 'entrées');
+
+        const weekStart = currentWeek.clone().startOf('isoWeek');
+        const emploiDataFiltre = finalEmploiData.filter(e => {
+            const dayNumber = joursSemaine[e.jour];
+            if (dayNumber === undefined) return false;
+            const eventDate = weekStart.clone().add(dayNumber, 'days');
+            return eventDate.isoWeek() === weekStart.isoWeek();
+        });
+
+        console.log('🔍 DEBUG - Week filtering:');
+        console.log('🔍 DEBUG - Total emplois_du_temps entries:', finalEmploiData.length);
+        console.log('🔍 DEBUG - Entries after week filter:', emploiDataFiltre.length);
+        console.log('🔍 DEBUG - Filtered entries:', emploiDataFiltre);
+
+        // TEMPORARY: Show all entries regardless of week to test
+        const emploiDataLimite = emploiDataFiltre.length > 0 ? emploiDataFiltre : finalEmploiData;
+        console.log('🔍 DEBUG - Using entries:', emploiDataLimite.length, '(week filtered or all)');
+
+        const salleIds = Array.from(new Set((emploiDataLimite || []).map(e => e.salle_id).filter(Boolean)));
         const { data: salles } = await supabase
             .from('salles')
             .select('id, nom')
             .in('id', salleIds);
         const seancesMap = Object.fromEntries((seances || []).map(s => [s.id, s]));
         const sallesMap = Object.fromEntries((salles || []).map(s => [Number(s.id), s]));
-        const weekStart = currentWeek.clone().startOf('isoWeek');
-        console.log('Debug - Emplois du temps avant formatage:', emploiDataFiltre);
-        console.log('Debug - SeancesMap:', seancesMap);
-        console.log('Debug - SallesMap:', sallesMap);
-        
-        const formattedEvents = (emploiDataFiltre || []).map((data, index) => {
-            console.log(`Debug - Formatage événement ${index}:`, data);
-            
+
+        console.log('🔍 DEBUG - Données avant formatage:');
+        console.log('emploiDataLimite:', emploiDataLimite);
+        console.log('seancesMap:', seancesMap);
+        console.log('sallesMap:', sallesMap);
+
+        const formattedEvents = (emploiDataLimite || []).map((data) => {
             const seance = seancesMap[data.seance_id];
-            console.log(`Debug - Séance trouvée pour ${data.seance_id}:`, seance);
-            
             const salle = sallesMap[Number(data.salle_id)];
-            console.log(`Debug - Salle trouvée pour ${data.salle_id}:`, salle);
-            
-            if (!seance) {
-                console.log(`Debug - Séance manquante pour ${data.seance_id}`);
-                return null;
-            }
-            
             const dayNumber = joursSemaine[data.jour];
-            console.log(`Debug - Jour "${data.jour}" -> numéro:`, dayNumber);
-            
-            let eventDate;
+
+            console.log('🔍 DEBUG - Traitement data:', data);
+            console.log('🔍 DEBUG - Seance trouvée:', seance);
+            console.log('🔍 DEBUG - Salle trouvée:', salle);
+            console.log('🔍 DEBUG - Jour:', data.jour, '-> dayNumber:', dayNumber);
+
             if (dayNumber === undefined || dayNumber === null) {
-                console.log(`Debug - Jour invalide: "${data.jour}"`);
+                console.log('⚠️ DEBUG - Jour invalide, skipping:', data.jour);
                 return null;
-            } else {
-                eventDate = weekStart.clone().add(dayNumber - 1, 'days');
-                console.log(`Debug - Date calculée:`, eventDate.format('YYYY-MM-DD'));
             }
-            
+
+            const eventDate = weekStart.clone().add(dayNumber, 'days');
             const event = {
                 id: data.id,
                 date: eventDate.format('YYYY-MM-DD'),
@@ -211,48 +256,75 @@ export default function EmploiDuTempsPage() {
                 salles: { nom: salle ? salle.nom : 'N/A' },
                 groupe: { nom: typeof seance.groupes === 'object' && seance.groupes !== null && 'nom' in seance.groupes ? (seance.groupes as { nom: string }).nom : 'N/A' },
             };
-            
-            console.log(`Debug - Événement formaté ${index}:`, event);
+
+            console.log('✅ DEBUG - Event formaté:', event);
             return event;
         });
-        
-        console.log('Debug - Événements après formatage (avant filtres):', formattedEvents);
-        
-        // D'abord, filtre les nulls
+
         const eventsWithoutNulls = formattedEvents.filter((event): event is EventData => event !== null);
-        console.log('Debug - Événements après filtrage des nulls:', eventsWithoutNulls);
-        
-        // Si un groupe spécifique est sélectionné, filtrer pour n'afficher que ses événements
+
+        console.log('🔍 DEBUG - Final filtering:');
+        console.log('🔍 DEBUG - eventsWithoutNulls:', eventsWithoutNulls.length);
+        console.log('🔍 DEBUG - groupeId:', groupeId);
+
         const finalEvents = eventsWithoutNulls.filter(event => {
-            const shouldShow = !selectedGroupe || event.groupe.nom === (groupes.find(g => String(g.id) === String(selectedGroupe))?.nom || '');
-            if (!shouldShow) {
-                console.log(`Debug - Événement filtré par groupe:`, event);
+            console.log('🔍 DEBUG - Filtering event:', event.id, 'groupeId:', groupeId);
+
+            if (!groupeId) {
+                console.log('🔍 DEBUG - No groupeId filter, keeping event');
+                return true;
             }
-            return shouldShow;
+
+            // Find the corresponding timetable entry to get the seance_id
+            const emploiEntry = finalEmploiData.find(e => e.id === event.id);
+            console.log('🔍 DEBUG - emploiEntry found:', emploiEntry);
+
+            if (!emploiEntry) {
+                console.log('🔍 DEBUG - No emploiEntry found, filtering out');
+                return false;
+            }
+
+            const seance = seancesMap[emploiEntry.seance_id];
+            console.log('🔍 DEBUG - seance found:', seance);
+            console.log('🔍 DEBUG - seance.groupes:', seance?.groupes);
+
+            if (!seance || !seance.groupes) {
+                console.log('🔍 DEBUG - No seance or groupes, filtering out');
+                return false;
+            }
+
+            const match = String(seance.groupes.id) === String(groupeId);
+            console.log('🔍 DEBUG - Group match:', match, 'seance.groupes.id:', seance.groupes.id, 'groupeId:', groupeId);
+
+            return match;
         });
-        
-        console.log('Debug - Événements finaux après tous les filtres:', finalEvents);
-        
-        setEvents(finalEvents);
+
+        console.log('🔍 DEBUG - finalEvents after filtering:', finalEvents.length);
+
+        // If no events match the selected group, show all events for the section
+        const eventsToShow = finalEvents.length > 0 ? finalEvents : eventsWithoutNulls;
+        console.log('🔍 DEBUG - Events to show:', eventsToShow.length, finalEvents.length === 0 ? '(showing all section events)' : '(filtered by group)');
+
+        setEvents(eventsToShow);
         setLoading(false);
     }, [currentWeek, groupes, sections]);
-    
-    // Recharger l'emploi du temps quand la sélection change
+
     useEffect(() => {
         fetchTimetable(selectedFiliere, selectedPromotion, selectedSection, selectedGroupe);
     }, [selectedFiliere, selectedPromotion, selectedSection, selectedGroupe, fetchTimetable]);
-    
+
     const handlePrevWeek = () => setCurrentWeek(currentWeek.clone().subtract(1, 'week'));
     const handleNextWeek = () => setCurrentWeek(currentWeek.clone().add(1, 'week'));
 
+    // Affichage du message d’explication
     return (
         <AuthGuard>
-        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-indigo-100 p-4 sm:p-6 lg:p-8">
+            <div className="min-h-screen bg-gradient-to-br from-gray-50 to-indigo-100 p-4 sm:p-6 lg:p-8">
                 <main className="max-w-7xl mx-auto">
                     <div className="flex justify-between items-center mb-6">
                         <Link href="/" className="flex items-center gap-2 text-indigo-600 hover:text-indigo-800">
                             <FaArrowLeft />
-                            Retour à l'accueil
+                            Retour à l accueil
                         </Link>
                         <h1 className="text-2xl font-bold text-gray-800">{currentTitle}</h1>
                         <div className="w-1/3"></div>
@@ -260,7 +332,7 @@ export default function EmploiDuTempsPage() {
 
                     <div className="bg-white p-6 rounded-2xl shadow-xl mb-8 border border-indigo-100">
                         <h2 className="text-lg font-semibold mb-4 text-gray-800">Sélection hiérarchique</h2>
-                        
+
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                             {/* Filière */}
                             <div>
@@ -314,10 +386,10 @@ export default function EmploiDuTempsPage() {
                                         <option key={section.id} value={section.id}>{section.nom}</option>
                                     ))}
                                 </select>
-                                </div>
+                            </div>
 
-                             {/* Groupe */}
-                             <div>
+                            {/* Groupe */}
+                            <div>
                                 <label htmlFor="groupe" className="block text-sm font-medium text-gray-700 mb-2">Groupe :</label>
                                 <select id="groupe" value={selectedGroupe}
                                     onChange={(e) => setSelectedGroupe(e.target.value)}
@@ -330,7 +402,7 @@ export default function EmploiDuTempsPage() {
                                 </select>
                             </div>
                         </div>
-                        
+
                         {/* Affichage de la sélection actuelle */}
                         {(selectedFiliere || selectedPromotion || selectedSection || selectedGroupe) && (
                             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
@@ -338,29 +410,21 @@ export default function EmploiDuTempsPage() {
                                 <p className="text-blue-700">
                                     <strong>Filière :</strong> {
                                         selectedFiliere ?
-                                          (filieres.find(f => String(f.id) === String(selectedFiliere))?.nom || `ID: ${selectedFiliere}`) :
-                                          ''
+                                            (filieres.find(f => String(f.id) === String(selectedFiliere))?.nom || `ID: ${selectedFiliere}`) :
+                                            ''
                                     } |
-                                    <strong> Promotion :</strong> {selectedPromotion} | 
+                                    <strong> Promotion :</strong> {selectedPromotion} |
                                     <strong> Section :</strong> {
                                         selectedSection ?
-                                          (sections.find(s => String(s.id) === String(selectedSection))?.nom || `ID: ${selectedSection}`) :
-                                          ''
+                                            (sections.find(s => String(s.id) === String(selectedSection))?.nom || `ID: ${selectedSection}`) :
+                                            ''
                                     }
                                     {selectedGroupe && ` | Groupe : ${groupes.find(g => String(g.id) === String(selectedGroupe))?.nom || `ID: ${selectedGroupe}`}`}
                                 </p>
                                 {selectionLoading && (
                                     <p className="text-xs text-blue-600 mt-2">Chargement des données...</p>
                                 )}
-                                {/* Debug info */}
-                                <div className="mt-2 text-xs text-gray-600">
-                                    <p>Debug - IDs: Filière={selectedFiliere}, Section={selectedSection}, Groupe={selectedGroupe}</p>
-                                    <p>Debug - Arrays: Filières={filieres.length}, Sections={sections.length}, Groupes={groupes.length}</p>
-                                    {filieres.length > 0 && <p>Debug - Filières disponibles: {filieres.map(f => `${f.id}:${f.nom}`).join(', ')}</p>}
-                                    {sections.length > 0 && <p>Debug - Sections disponibles: {sections.map(s => `${s.id}:${s.nom}`).join(', ')}</p>}
-                                    {groupes.length > 0 && <p>Debug - Groupes disponibles: {groupes.map(g => `${g.id}:${g.nom}`).join(', ')}</p>}
-                                </div>
-                                <button 
+                                <button
                                     onClick={() => {
                                         setSelectedFiliere('');
                                         setSelectedPromotion('');
@@ -379,18 +443,8 @@ export default function EmploiDuTempsPage() {
                                 </button>
                             </div>
                         )}
-                        
-                        <div className="mb-4 flex items-center gap-3">
-                            <label htmlFor="nombre-seances" className="block text-sm font-medium text-gray-700">Nombre de séances à planifier :</label>
-                            <input
-                                id="nombre-seances"
-                                type="number"
-                                min={1}
-                                value={nombreSeances}
-                                onChange={e => setNombreSeances(Number(e.target.value))}
-                                className="w-24 p-2 border border-gray-300 rounded-md"
-                            />
-                    </div>
+
+
                         <button
                             className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2 disabled:opacity-50"
                             onClick={async () => {
@@ -398,11 +452,10 @@ export default function EmploiDuTempsPage() {
                                 setMessage('Génération en cours...');
                                 let success = false;
                                 if (selectedSection) {
-                                    // Générer pour toute la section, même si un groupe spécifique est sélectionné
                                     if (selectedGroupe) {
                                         setMessage(`Génération pour toute la section ${sections.find(s => String(s.id) === String(selectedSection))?.nom || selectedSection} (incluant le groupe ${groupes.find(g => String(g.id) === String(selectedGroupe))?.nom || selectedGroupe})...`);
                                     }
-                                    success = await genererEmploiDuTemps(selectedSection, setMessage, selectedPromotion, nombreSeances);
+                                    success = await genererEmploiDuTemps(selectedSection, setMessage, selectedPromotion);
                                 } else {
                                     setMessage('Veuillez sélectionner au moins une section.');
                                     setIsGenerating(false);
@@ -410,8 +463,7 @@ export default function EmploiDuTempsPage() {
                                 }
                                 setIsGenerating(false);
                                 if (success) {
-                                    setMessage(`Emploi du temps généré avec succès ! ${nombreSeances} séances demandées.`);
-                                    // Recharger l'emploi du temps après génération
+                                    setMessage(`Emploi du temps généré avec succès !`);
                                     await fetchTimetable(selectedFiliere, selectedPromotion, selectedSection, selectedGroupe);
                                 }
                             }}
@@ -419,8 +471,6 @@ export default function EmploiDuTempsPage() {
                         >
                             <FaCogs /> Générer automatiquement
                         </button>
-                        
-                        {/* Bouton de détection des conflits supprimé */}
                     </div>
 
                     <div className="flex justify-between items-center mb-4">
@@ -434,20 +484,25 @@ export default function EmploiDuTempsPage() {
                     </div>
 
                     {message && (
-                        <div className="mb-4 p-3 rounded-md text-sm text-red-700 bg-red-100 border border-red-300">
-                           {message}
+                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 my-4 text-yellow-800">
+                            <pre style={{ whiteSpace: 'pre-wrap' }}>{message}</pre>
                         </div>
                     )}
 
-                    {/* Debug info retirée pour un rendu plus propre */}
-
-                {loading ? (
+                    {loading ? (
                         <div className="text-center py-10">
-                            <p className="text-indigo-600">Chargement de l'emploi du temps...</p>
-                    </div>
-                ) : (
-                        <TimetableGrid events={events} currentDate={currentWeek.toDate()} />
-                )}
+                            <p className="text-indigo-600">Chargement de l&apos;emploi du temps&hellip;</p>
+                        </div>
+                    ) : (
+                        <TimetableGrid
+                            events={events}
+                            currentDate={currentWeek.toDate()}
+                            sectionName={selectedSection ? sections.find(s => String(s.id) === String(selectedSection))?.nom : undefined}
+                            niveau={selectedPromotion}
+                            filiereName={selectedFiliere ? filieres.find(f => String(f.id) === String(selectedFiliere))?.nom : undefined}
+                            groupeName={selectedGroupe ? groupes.find(g => String(g.id) === String(selectedGroupe))?.nom : undefined}
+                        />
+                    )}
                 </main>
             </div>
         </AuthGuard>
