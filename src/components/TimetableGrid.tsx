@@ -133,15 +133,15 @@ const handleDragEnd = async (result: DropResult) => {
     const [newDayIndex, newGridIndex] = result.destination.droppableId.split('-').map(Number);
 
     if (newDayIndex >= DAYS.length) return;
-    const weekStart = moment(currentDate).startOf('week');
-    const newDate = weekStart.clone().add(newDayIndex, 'days').format('YYYY-MM-DD');
     const slot = TIME_SLOTS[newGridIndex];
+    const jour = DAYS[newDayIndex];
 
     const movedEvent = localEvents.find(event => String(event.id) === eventId);
     if (!movedEvent) return;
 
+    // Vérifier la disponibilité de l'enseignant pour ce jour
     if (movedEvent.enseignants?.nom) {
-        const isAvailable = await checkTeacherAvailability(movedEvent.enseignants.nom, newDate);
+        const isAvailable = await checkTeacherAvailability(movedEvent.enseignants.nom, jour);
         if (!isAvailable) {
             alert("Impossible : L'enseignant n'est pas disponible ce jour.");
             return;
@@ -150,12 +150,12 @@ const handleDragEnd = async (result: DropResult) => {
 
     // Récupérer tous les events déjà dans ce slot
     const eventsInSlot = localEvents.filter(ev =>
-        moment(ev.date).isSame(newDate, 'day') &&
+        // On considère le jour et l'heure_debut
+        moment(ev.date).format('dddd').toLowerCase() === jour.toLowerCase() &&
         ev.heure_debut === slot.start
     );
 
     // 1. Contrainte CM/TD/TP section stricte
-    // Empêche tout TD/TP d'être placé là où il y a un CM du même cours/section, et vice versa
     const isCM = movedEvent.type.toLowerCase() === 'cm';
     const isTDTP = movedEvent.type.toLowerCase() === 'td' || movedEvent.type.toLowerCase() === 'tp';
     if (isCM) {
@@ -167,7 +167,6 @@ const handleDragEnd = async (result: DropResult) => {
             alert("Impossible : Un TD/TP de la même section/cours existe déjà dans ce créneau.");
             return;
         }
-        // Empêche aussi d'ajouter un CM si un CM du même cours/section existe déjà (évite doublon CM)
         if (eventsInSlot.some(ev =>
             ev.type.toLowerCase() === 'cm' &&
             ev.cours?.nom === movedEvent.cours?.nom &&
@@ -177,14 +176,12 @@ const handleDragEnd = async (result: DropResult) => {
             return;
         }
     } else if (isTDTP) {
-        // Empêche d'ajouter un TD/TP là où il y a un CM du même cours/section
         if (eventsInSlot.some(ev =>
             ev.type.toLowerCase() === 'cm'
         )) {
             alert("Impossible : Un CM de la même section/cours existe déjà dans ce créneau.");
             return;
         }
-        // Si un autre TD/TP du même groupe existe déjà dans ce slot, bloquer
         if (eventsInSlot.some(ev =>
             (ev.type === 'TD' || ev.type === 'TP') &&
             ev.groupe?.nom === movedEvent.groupe?.nom
@@ -194,12 +191,43 @@ const handleDragEnd = async (result: DropResult) => {
         }
     }
 
-    // 2. Contrainte enseignant unique
+
+    // 2. Contrainte enseignant unique (dans la grille courante)
     if (eventsInSlot.some(ev =>
         ev.enseignants?.nom === movedEvent.enseignants?.nom
     )) {
         alert("Impossible : L'enseignant a déjà un cours dans ce créneau.");
         return;
+    }
+
+    if (movedEvent.enseignants?.nom && movedEvent.id) {
+        const { data: emplois, error } = await supabase
+            .from('emplois_du_temps')
+            .select('id, seance_id')
+            .eq('jour', jour)
+            .eq('heure_debut', slot.start);
+        if (!error && emplois && emplois.length > 0) {
+            for (const emploi of emplois) {
+                if (emploi.seance_id && emploi.seance_id !== movedEvent.id) {
+                    const { data: seance, error: seanceError } = await supabase
+                        .from('seances')
+                        .select('enseignant_id')
+                        .eq('id', emploi.seance_id)
+                        .single();
+                    if (!seanceError && seance && seance.enseignant_id) {
+                        const { data: enseignant, error: enseignantError } = await supabase
+                            .from('enseignants')
+                            .select('nom')
+                            .eq('id', seance.enseignant_id)
+                            .single();
+                        if (!enseignantError && enseignant && enseignant.nom === movedEvent.enseignants.nom) {
+                            alert("Impossible : L'enseignant a déjà un cours dans ce créneau sur un autre emploi du temps.");
+                            return;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // 3. Contrainte salle unique
@@ -210,18 +238,37 @@ const handleDragEnd = async (result: DropResult) => {
         return;
     }
 
-    // Si tout est ok, déplacer l'événement
-    setLocalEvents(prevEvents => {
-        const filtered = prevEvents.filter(ev => String(ev.id) !== eventId);
-        return [
-            ...filtered,
-            {
-                ...movedEvent,
-                date: newDate,
-                heure_debut: slot.start,
-            }
-        ];
-    });
+    // Mise à jour en BDD (emplois_du_temps)
+    try {
+        const updatePayload = {
+            jour,
+            heure_debut: slot.start,
+        };
+
+
+        const { error } = await supabase
+            .from('emplois_du_temps')
+            .update(updatePayload)
+            .eq('id', movedEvent.id);
+        if (error) {
+            alert("Erreur lors de la sauvegarde en base de données : " + error.message);
+            return;
+        }
+        setLocalEvents(prevEvents => {
+            const filtered = prevEvents.filter(ev => String(ev.id) !== eventId);
+            return [
+                ...filtered,
+                {
+                    ...movedEvent,
+                    date: moment().day(jour).format('YYYY-MM-DD'), // Pour affichage local
+                    heure_debut: slot.start,
+                }
+            ];
+        });
+    } catch (err) {
+        console.error(err);
+        alert("Erreur inattendue lors de la sauvegarde en base de données.");
+    }
 };
     const exportPDF = async () => {
         const pdf = new jsPDF({
@@ -679,8 +726,8 @@ const handleDragEnd = async (result: DropResult) => {
                                                                                     <span className="text-xs text-gray-700 font-medium">{event.enseignants?.nom}</span>
                                                                                     <span className="text-xs text-gray-500">{event.salles?.nom}</span>
                                                                                     <div className="text-xs text-gray-600">Groupe : {event.groupe?.nom}</div>
-                                                                                    <div className="text-xs text-gray-600">Section : {event.section?.nom}</div>
-                                                                                    {event.type && (
+
+                                                                                        {event.type && (
                                                                                         <span className={`text-[10px] ${getTypeColor(event.type).bg} ${getTypeColor(event.type).text} ${getTypeColor(event.type).border} border rounded px-2 py-1 mt-1 font-semibold`}>
                                                                                             {event.type}
                                                                                         </span>

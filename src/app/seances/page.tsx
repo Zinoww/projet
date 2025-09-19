@@ -184,12 +184,16 @@ export default function SeancesPage() {
             const typesMap = new Map(types.map(t => [t.nom.toLowerCase(), t.id]));
             const groupesMap = new Map(groupes.map(g => [g.nom.toLowerCase(), g.id]));
             const enseignantsMap = new Map(enseignants.map(en => [en.nom.toLowerCase(), en.id]));
+            const filieresMap = new Map(filieres.map(f => [f.nom.toLowerCase(), f.id]));
+            const sectionsMap = new Map(sections.map(s => [s.nom.toLowerCase(), s.id]));
 
             // Debug: afficher les données disponibles
             console.log('Cours disponibles:', Array.from(coursMap.keys()));
             console.log('Types disponibles:', Array.from(typesMap.keys()));
             console.log('Groupes disponibles:', Array.from(groupesMap.keys()));
             console.log('Enseignants disponibles:', Array.from(enseignantsMap.keys()));
+            console.log('Filieres disponibles:', Array.from(filieresMap.keys()));
+            console.log('Sections disponibles:', Array.from(sectionsMap.keys()));
 
             const reader = new FileReader();
             reader.onload = async (event) => {
@@ -198,47 +202,46 @@ export default function SeancesPage() {
                     const workbook = XLSX.read(data, { type: 'binary' });
                     const sheetName = workbook.SheetNames[0];
                     const sheet = workbook.Sheets[sheetName];
-                    const jsonData = XLSX.utils.sheet_to_json<ExcelRow>(sheet);
+                    // Ajout des nouveaux champs dans ExcelRow
+                    type ExcelRowExtended = ExcelRow & { niveau?: string; section_nom?: string; filiere_nom?: string };
+                    const jsonData = XLSX.utils.sheet_to_json<ExcelRowExtended>(sheet);
 
                     console.log('Données Excel:', jsonData);
 
-                    const seancesToInsert = jsonData.map(row => {
-                        const coursNom = row.cours_nom?.trim().toLowerCase();
-                        const typeNom = row.type_nom?.trim().toLowerCase();
-                        const groupeNom = row.groupe_nom?.trim().toLowerCase();
+                    const seancesToInsert = jsonData
+                        .map(row => {
+                            const coursNom = row.cours_nom?.trim().toLowerCase();
+                            const typeNom = row.type_nom?.trim().toLowerCase();
+                            const groupeNom = row.groupe_nom?.trim().toLowerCase();
+                            const filiereNom = row.filiere_nom?.trim().toLowerCase();
+                            const sectionNom = row.section_nom?.trim().toLowerCase();
+                            const niveau = row.niveau?.trim();
 
-                        const cours_id = coursMap.get(coursNom);
-                        const type_id = typesMap.get(typeNom);
-                        const groupe_id = groupesMap.get(groupeNom);
-                        const enseignant_id = row.enseignant_nom ? enseignantsMap.get(row.enseignant_nom.trim().toLowerCase()) : null;
+                            const cours_id = coursNom ? coursMap.get(coursNom) : null;
+                            const type_id = typeNom ? typesMap.get(typeNom) : null;
+                            const groupe_id = groupeNom ? groupesMap.get(groupeNom) : null;
+                            const enseignant_id = row.enseignant_nom ? enseignantsMap.get(row.enseignant_nom.trim().toLowerCase()) : null;
+                            const filiere_id = filiereNom ? filieresMap.get(filiereNom) : null;
+                            const section_id = sectionNom ? sectionsMap.get(sectionNom) : null;
 
-                        console.log(`Ligne "${row.cours_nom}":`, {
-                            coursNom,
-                            typeNom,
-                            groupeNom,
-                            cours_id: cours_id ? 'TROUVÉ' : 'NON TROUVÉ',
-                            type_id: type_id ? 'TROUVÉ' : 'NON TROUVÉ',
-                            groupe_id: groupe_id ? 'TROUVÉ' : 'NON TROUVÉ'
-                        });
+                            // cours_nom, type_nom et duree_minutes sont obligatoires pour insérer la ligne
+                            if (!cours_id || !type_id || !row.duree_minutes) {
+                                console.warn(`Ligne ignorée (cours, type ou durée manquant ou non trouvé):`, row);
+                                return null;
+                            }
 
-                        if (!cours_id || !type_id || !groupe_id) {
-                            const missing = [];
-                            if (!cours_id) missing.push(`cours "${row.cours_nom}"`);
-                            if (!type_id) missing.push(`type "${row.type_nom}"`);
-                            if (!groupe_id) missing.push(`groupe "${row.groupe_nom}"`);
-                            throw new Error(`Données manquantes pour la ligne "${row.cours_nom}": ${missing.join(', ')}. Vérifiez que ces éléments existent dans la base de données.`);
-                        }
-                        if (row.enseignant_nom && enseignant_id === undefined) {
-                            throw new Error(`L&apos;enseignant "${row.enseignant_nom}" n&apos;a pas été trouvé.`);
-                        }
-                        return {
-                            cours_id,
-                            type_id,
-                            groupe_id,
-                            enseignant_id: enseignant_id,
-                            duree_minutes: Number(row.duree_minutes) || 90,
-                        };
-                    });
+                            return {
+                                cours_id,
+                                type_id,
+                                groupe_id: groupe_id || null,
+                                enseignant_id: enseignant_id || null,
+                                duree_minutes: Number(row.duree_minutes) || 90,
+                                filiere_id: filiere_id || null,
+                                section_id: section_id || null,
+                                niveau: niveau || null,
+                            };
+                        })
+                        .filter(Boolean); // enlève les lignes null
                     if (seancesToInsert.length > 0) {
                         const { error: insertError } = await supabase.from('seances').insert(seancesToInsert);
                         if (insertError) {
@@ -247,7 +250,7 @@ export default function SeancesPage() {
                         setSuccess(`${seancesToInsert.length} séance(s) importée(s) avec succès.`);
                         fetchInitialData();
                     } else {
-                        setError("Le fichier Excel ne contenait aucune ligne valide.");
+                        setError("Le fichier Excel ne contenait aucune ligne valide ou les champs obligatoires étaient manquants.");
                     }
                 } catch (err: unknown) {
                     const errorMessage = err instanceof Error ? err.message : 'Erreur inconnue';
@@ -291,14 +294,14 @@ export default function SeancesPage() {
             type_id,
             enseignant_id: newSeance.enseignant_id || null,
             section_id,
-            groupe_id,
+            groupe_id: newSeance.groupe_id || null,
             duree_minutes: Number(newSeance.duree_minutes),
             filiere_id: newSeance.filiere_id || null,
             niveau: selectedNiveau || null
         };
         if (isCM) {
             insertObj.section_id = section_id;
-            insertObj.groupe_id = '';
+            insertObj.groupe_id = null;
         } else {
             insertObj.groupe_id = groupe_id;
             insertObj.section_id = section_id;
