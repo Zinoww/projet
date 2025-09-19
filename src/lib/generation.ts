@@ -1,4 +1,6 @@
 import { supabase } from '@/src/lib/supabaseClient'
+import moment from 'moment';
+import 'moment/locale/fr';
 
 // --- 1. TYPE DEFINITIONS ---
 
@@ -14,6 +16,7 @@ interface EmploiDuTempsItem {
     heure_fin: string;
     salle_id: string;
     groupe_id?: string; // Ajouté pour la cohérence avec l'utilisation plus bas
+    enseignant_id?: string; // Pour la vérification des conflits d'enseignant
 }
 
 interface Groupe {
@@ -29,7 +32,6 @@ interface Salle {
     nom: string;
     capacite?: number;
 }
-
 interface Seance {
     id: string;
     duree_minutes?: number;
@@ -117,15 +119,23 @@ function peutPlacerSeance(
         return false;
     }
 
-    // Vérifier si le groupe est déjà occupé à ce créneau
-    const groupeOccupe = state.planningGroupes[jour]?.[creneau.debut]?.includes(seance.groupe_id);
+    // Vérifier si le groupe de la séance est déjà occupé à ce créneau (par une autre séance)
+    const groupeOccupe = state.planning.some(p =>
+        p.jour === jour &&
+        p.heure_debut === creneau.debut &&
+        p.groupe_id === seance.groupe_id
+    );
     if (groupeOccupe) {
         return false;
     }
 
-    // Vérifier si l'enseignant est déjà occupé à ce créneau
+    // Vérifier si l'enseignant est déjà occupé à ce créneau (par une autre séance)
     if (seance.enseignant_id) {
-        const enseignantOccupe = state.planningEnseignants[jour]?.[creneau.debut]?.includes(seance.enseignant_id);
+        const enseignantOccupe = state.planning.some(p =>
+            p.jour === jour &&
+            p.heure_debut === creneau.debut &&
+            p.enseignant_id === seance.enseignant_id
+        );
         if (enseignantOccupe) {
             return false;
         }
@@ -194,7 +204,7 @@ function placerSeance(
     creneau: Creneau,
     salle_id: string,
     state: PlacementState,
-    groupes: Groupe[]
+    []
 ): PlacementState {
     // VÉRIFICATION ABSOLUE : S'assurer qu'aucun conflit n'existe avant le placement
     const conflitExistant = state.planning.find(p =>
@@ -224,7 +234,9 @@ function placerSeance(
             jour: jour,
             heure_debut: creneau.debut,
             heure_fin: creneau.fin,
-            salle_id: salle_id
+            salle_id: salle_id,
+            groupe_id: seance.groupe_id,
+            enseignant_id: seance.enseignant_id
         }],
         planningGroupes: { ...state.planningGroupes },
         planningEnseignants: { ...state.planningEnseignants },
@@ -239,30 +251,7 @@ function placerSeance(
     if (!newState.planningSalles[jour]) newState.planningSalles[jour] = {};
     if (!newState.planningSalles[jour][creneau.debut]) newState.planningSalles[jour][creneau.debut] = [];
 
-    // Marquer les groupes comme occupés
-    if (seance.types_seances?.nom?.toLowerCase().includes('cm')) {
-        groupes.forEach(groupe => {
-            if (!newState.planningGroupes[jour][creneau.debut].includes(groupe.id)) {
-                newState.planningGroupes[jour][creneau.debut].push(groupe.id);
-            }
-        });
-    } else {
-        if (!newState.planningGroupes[jour][creneau.debut].includes(seance.groupe_id)) {
-            newState.planningGroupes[jour][creneau.debut].push(seance.groupe_id);
-        }
-    }
-
-    // Marquer l'enseignant comme occupé
-    if (seance.enseignant_id) {
-        if (!newState.planningEnseignants[jour][creneau.debut].includes(seance.enseignant_id)) {
-            newState.planningEnseignants[jour][creneau.debut].push(seance.enseignant_id);
-        }
-    }
-
-    // Marquer la salle comme occupée
-    if (!newState.planningSalles[jour][creneau.debut].includes(salle_id)) {
-        newState.planningSalles[jour][creneau.debut].push(salle_id);
-    }
+    // Marquer la séance comme placée (plus de logique de groupes/enseignants à ce niveau)
 
     return newState;
 }
@@ -288,6 +277,7 @@ function backtrackingPlacement(
 
     const seance = seances[0];
     const seancesRestantes = seances.slice(1);
+    let aTrouveUnPlacement = false;
 
     // DÉTERMINATION FLEXIBLE des salles selon le type de séance
     let sallesAppropriees: Salle[] = [];
@@ -318,7 +308,6 @@ function backtrackingPlacement(
             for (const salle of shuffle([...sallesAppropriees])) {
                 if (peutPlacerSeance(seance, jour, creneau, salle.id, state, groupes, amphis, sallesNormales)) {
                     const newState = placerSeance(seance, jour, creneau, salle.id, state, groupes);
-
                     const resultat = backtrackingPlacement(
                         seancesRestantes,
                         newState,
@@ -329,20 +318,21 @@ function backtrackingPlacement(
                         creneaux,
                         maxIterations - 1
                     );
-
                     if (resultat) {
+                        aTrouveUnPlacement = true;
                         return resultat; // Solution trouvée
                     }
                     // Sinon, continuer avec la prochaine salle
+                } else {
+                    // Log si on ne peut pas placer la séance à ce créneau/salle
+                    // console.log(`[DEBUG] Impossible de placer séance ${seance.id} (${seance.type_id}) à ${jour} ${creneau.debut} salle ${salle.id}`);
                 }
             }
-
             // Si pas de solution avec les salles primaires, essayer les salles secondaires
             if (sallesSecondaires.length > 0) {
                 for (const salle of shuffle([...sallesSecondaires])) {
                     if (peutPlacerSeance(seance, jour, creneau, salle.id, state, groupes, amphis, sallesNormales)) {
                         const newState = placerSeance(seance, jour, creneau, salle.id, state, groupes);
-
                         const resultat = backtrackingPlacement(
                             seancesRestantes,
                             newState,
@@ -353,17 +343,22 @@ function backtrackingPlacement(
                             creneaux,
                             maxIterations - 1
                         );
-
                         if (resultat) {
+                            aTrouveUnPlacement = true;
                             return resultat; // Solution trouvée avec salle secondaire
                         }
                         // Sinon, continuer avec la prochaine salle
+                    } else {
+                        // console.log(`[DEBUG] Impossible de placer séance ${seance.id} (${seance.type_id}) à ${jour} ${creneau.debut} salle secondaire ${salle.id}`);
                     }
                 }
             }
         }
     }
-
+    if (!aTrouveUnPlacement) {
+        // Log détaillé pour la séance non placée
+        console.warn(`[ALGO][BACKTRACK] Séance NON PLACÉE: id=${seance.id}, type_id=${seance.type_id}, groupe_id=${seance.groupe_id}, enseignant_id=${seance.enseignant_id}`);
+    }
     return null; // Aucune solution trouvée
 }
 
@@ -685,7 +680,7 @@ function validerEtCorrigerConflits(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _sallesNormales: Salle[]
 ): PlacementState {
-
+    // Initialisation du planning valide
     const planningValide: PlacementState = {
         planning: [],
         planningGroupes: {},
@@ -695,70 +690,245 @@ function validerEtCorrigerConflits(
 
     const conflitsDetectes: { type: string; details: string; seanceId: string }[] = [];
 
-    // Trier les séances par priorité (CM d'abord, puis TD, puis TP)
-    const seancesTriees = [...planning.planning].sort(() => {
-        // Tri simple basé sur l'index pour éviter les erreurs de type
-        return 0; // Pas de tri spécial pour l'instant
-    });
+    // Trier (gardé identique)
+    const seancesTriees = [...planning.planning];
 
+    // Préparer lookup maps pour occupation rapide
+    const occSalles: { [key: string]: Set<string> } = {}; // key = `${jour}_${heure_debut}` -> set salle_id
+    const occGroupes: { [key: string]: Set<string> } = {}; // key = `${jour}_${heure_debut}` -> set groupe_id
+    const occEnseignants: { [key: string]: Set<string> } = {}; // key = `${jour}_${heure_debut}` -> set enseignant_id
+
+    // Helper builders
+    const normalizeHeure = (heure: string) => {
+        if (!heure) return heure;
+        // if format HH:mm -> convert to HH:mm:00
+        const parts = heure.split(':');
+        if (parts.length === 2) return `${parts[0].padStart(2,'0')}:${parts[1].padStart(2,'0')}:00`;
+        if (parts.length === 3) return `${parts[0].padStart(2,'0')}:${parts[1].padStart(2,'0')}:${parts[2].padStart(2,'0')}`;
+        return heure;
+    };
+    const makeKey = (jour: string, heure: string) => `${jour}_${heure}`;
+
+    // All salles list from parameters
+    const allSallesList: Salle[] = [...(_amphis || []), ...(_sallesNormales || [])];
+
+    // Candidate jours/creneaux (consistent with generator)
+    const joursPossibles = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"];
+    const creneauxPossibles = [
+        { debut: '08:00:00', fin: '09:30:00' },
+        { debut: '09:30:00', fin: '11:00:00' },
+        { debut: '11:00:00', fin: '12:30:00' },
+        { debut: '13:30:00', fin: '15:00:00' },
+        { debut: '15:00:00', fin: '16:30:00' }
+    ];
+
+    // Iterate and place
     for (const placement of seancesTriees) {
-        let conflit = false;
-        let raisonConflit = '';
+    const heureNormOriginal = normalizeHeure(placement.heure_debut);
+    const keyOriginal = makeKey(placement.jour, heureNormOriginal);
+        const salleOcc = occSalles[keyOriginal] || new Set<string>();
+        const groupeOcc = occGroupes[keyOriginal] || new Set<string>();
+        const enseigOcc = occEnseignants[keyOriginal] || new Set<string>();
 
-        // Vérifier les conflits avec les séances déjà validées
-        for (const placementValide of planningValide.planning) {
-            // Conflit de salle et créneau
-            if (placement.jour === placementValide.jour &&
-                placement.heure_debut === placementValide.heure_debut &&
-                placement.salle_id === placementValide.salle_id) {
-                conflit = true;
-                raisonConflit = `Conflit de salle avec ${placementValide.seance_id}`;
-                break;
+        const conflictSalle = salleOcc.has(placement.salle_id);
+        const conflictGroupe = placement.groupe_id ? groupeOcc.has(placement.groupe_id) : false;
+        const conflictEnseignant = placement.enseignant_id ? enseigOcc.has(placement.enseignant_id) : false;
+
+        if (!conflictSalle && !conflictGroupe && !conflictEnseignant) {
+            // Pas de conflit, on place (normalise heure pour l'affichage)
+            const placed: EmploiDuTempsItem = {
+                ...placement,
+                heure_debut: heureNormOriginal,
+                heure_fin: normalizeHeure(placement.heure_fin)
+            };
+            planningValide.planning.push(placed);
+            // update occ maps
+            const k = keyOriginal;
+            if (!occSalles[k]) occSalles[k] = new Set();
+            occSalles[k].add(placed.salle_id);
+            if (placed.groupe_id) {
+                if (!occGroupes[k]) occGroupes[k] = new Set();
+                occGroupes[k].add(placed.groupe_id);
+            }
+            if (placed.enseignant_id) {
+                if (!occEnseignants[k]) occEnseignants[k] = new Set();
+                occEnseignants[k].add(placed.enseignant_id);
             }
 
-            // Conflit de groupe (même groupe à la même heure)
-            if (placement.jour === placementValide.jour &&
-                placement.heure_debut === placementValide.heure_debut) {
-                // Pour l'instant, on évite les conflits de créneau pour le même groupe
-                // Cette logique sera améliorée quand on aura accès aux détails des séances
-                conflit = true;
-                raisonConflit = `Conflit de créneau avec ${placementValide.seance_id}`;
-                break;
-            }
-        }
+            // update tracking structures
+            if (!planningValide.planningGroupes[placement.jour]) planningValide.planningGroupes[placement.jour] = {};
+            if (!planningValide.planningGroupes[placement.jour][placement.heure_debut]) planningValide.planningGroupes[placement.jour][placement.heure_debut] = [];
+            planningValide.planningGroupes[placement.jour][placed.heure_debut].push(placed.seance_id);
 
-        if (conflit) {
-            conflitsDetectes.push({
-                type: 'Conflit détecté',
-                details: raisonConflit,
-                seanceId: placement.seance_id
-            });
+            if (!planningValide.planningSalles[placement.jour]) planningValide.planningSalles[placement.jour] = {};
+            if (!planningValide.planningSalles[placement.jour][placement.heure_debut]) planningValide.planningSalles[placement.jour][placement.heure_debut] = [];
+            planningValide.planningSalles[placement.jour][placed.heure_debut].push(placed.salle_id);
+
             continue;
         }
 
-        // Aucun conflit, ajouter au planning valide
-        planningValide.planning.push(placement);
+        // Tentative de réaffectation systématique
+        let reassigned = false;
 
-        // Mettre à jour les structures de suivi
-        if (!planningValide.planningGroupes[placement.jour]) {
-            planningValide.planningGroupes[placement.jour] = {};
-        }
-        if (!planningValide.planningGroupes[placement.jour][placement.heure_debut]) {
-            planningValide.planningGroupes[placement.jour][placement.heure_debut] = [];
+        const tryReassign = (targetPlacement: EmploiDuTempsItem): boolean => {
+            for (const j of joursPossibles) {
+                for (const c of creneauxPossibles) {
+                    const k = makeKey(j, c.debut);
+                    for (const salle of allSallesList) {
+                        const occSet = occSalles[k] || new Set<string>();
+                        if (occSet.has(salle.id)) continue;
+                        const groupSet = occGroupes[k] || new Set<string>();
+                        if (targetPlacement.groupe_id && groupSet.has(targetPlacement.groupe_id)) continue;
+                        const enseigSet = occEnseignants[k] || new Set<string>();
+                        if (targetPlacement.enseignant_id && enseigSet.has(targetPlacement.enseignant_id)) continue;
+
+                        // Place targetPlacement here
+                        const heureDebutNorm = normalizeHeure(c.debut);
+                        const heureFinNorm = normalizeHeure(c.fin);
+                        const nouveauPlacement: EmploiDuTempsItem = {
+                            seance_id: targetPlacement.seance_id,
+                            jour: j,
+                            heure_debut: heureDebutNorm,
+                            heure_fin: heureFinNorm,
+                            salle_id: salle.id,
+                            groupe_id: targetPlacement.groupe_id,
+                            enseignant_id: targetPlacement.enseignant_id
+                        };
+
+                        planningValide.planning.push(nouveauPlacement);
+
+                        if (!occSalles[k]) occSalles[k] = new Set();
+                        occSalles[k].add(salle.id);
+                        if (targetPlacement.groupe_id) {
+                            if (!occGroupes[k]) occGroupes[k] = new Set();
+                            occGroupes[k].add(targetPlacement.groupe_id);
+                        }
+                        if (targetPlacement.enseignant_id) {
+                            if (!occEnseignants[k]) occEnseignants[k] = new Set();
+                            occEnseignants[k].add(targetPlacement.enseignant_id);
+                        }
+
+                        if (!planningValide.planningGroupes[j]) planningValide.planningGroupes[j] = {};
+                        if (!planningValide.planningGroupes[j][heureDebutNorm]) planningValide.planningGroupes[j][heureDebutNorm] = [];
+                        planningValide.planningGroupes[j][heureDebutNorm].push(nouveauPlacement.seance_id);
+
+                        if (!planningValide.planningSalles[j]) planningValide.planningSalles[j] = {};
+                        if (!planningValide.planningSalles[j][heureDebutNorm]) planningValide.planningSalles[j][heureDebutNorm] = [];
+                        planningValide.planningSalles[j][heureDebutNorm].push(salle.id);
+
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+
+        // 1) Try to move current placement
+        reassigned = tryReassign(placement);
+
+        // 2) If not possible, try to move conflicting placements out of the way
+        if (!reassigned) {
+            // find conflicts in planningValide that block this placement
+            const blockers = planningValide.planning.filter(p =>
+                p.jour === placement.jour && p.heure_debut === placement.heure_debut && (
+                    p.salle_id === placement.salle_id ||
+                    (placement.groupe_id && p.groupe_id === placement.groupe_id) ||
+                    (placement.enseignant_id && p.enseignant_id === placement.enseignant_id)
+                )
+            );
+
+            for (const blocker of blockers) {
+                // Attempt to move blocker elsewhere
+                // Remove blocker from current occ maps/tracking to allow tryReassign to place others
+                const keyBlock = makeKey(blocker.jour, blocker.heure_debut);
+                if (occSalles[keyBlock]) occSalles[keyBlock].delete(blocker.salle_id);
+                if (blocker.groupe_id && occGroupes[keyBlock]) occGroupes[keyBlock].delete(blocker.groupe_id);
+                if (blocker.enseignant_id && occEnseignants[keyBlock]) occEnseignants[keyBlock].delete(blocker.enseignant_id);
+
+                // Also remove from tracking structures planningValide.planningGroupes/planningSalles
+                const pg = planningValide.planningGroupes[blocker.jour];
+                if (pg && pg[blocker.heure_debut]) {
+                    planningValide.planningGroupes[blocker.jour][blocker.heure_debut] = pg[blocker.heure_debut].filter(id => id !== blocker.seance_id);
+                }
+                const ps = planningValide.planningSalles[blocker.jour];
+                if (ps && ps[blocker.heure_debut]) {
+                    planningValide.planningSalles[blocker.jour][blocker.heure_debut] = ps[blocker.heure_debut].filter(id => id !== blocker.salle_id);
+                }
+
+                // Also remove from planningValide.planning array
+                const idx = planningValide.planning.findIndex(p => p.seance_id === blocker.seance_id && p.jour === blocker.jour && p.heure_debut === blocker.heure_debut);
+                if (idx !== -1) planningValide.planning.splice(idx, 1);
+
+                // Now try to reassign the blocker somewhere else
+                const moved = tryReassign(blocker);
+                if (moved) {
+                    // Now there's space for original placement at its original slot
+                    const keyOrig = makeKey(placement.jour, normalizeHeure(placement.heure_debut));
+                    if (!occSalles[keyOrig]) occSalles[keyOrig] = new Set();
+                    occSalles[keyOrig].add(placement.salle_id);
+                    if (placement.groupe_id) {
+                        if (!occGroupes[keyOrig]) occGroupes[keyOrig] = new Set();
+                        occGroupes[keyOrig].add(placement.groupe_id);
+                    }
+                    if (placement.enseignant_id) {
+                        if (!occEnseignants[keyOrig]) occEnseignants[keyOrig] = new Set();
+                        occEnseignants[keyOrig].add(placement.enseignant_id);
+                    }
+
+                    // Place the original placement into its original slot
+                    const originalPlaced: EmploiDuTempsItem = {
+                        ...placement,
+                        heure_debut: normalizeHeure(placement.heure_debut),
+                        heure_fin: normalizeHeure(placement.heure_fin)
+                    };
+                    planningValide.planning.push(originalPlaced);
+                    if (!planningValide.planningGroupes[placement.jour]) planningValide.planningGroupes[placement.jour] = {};
+                    if (!planningValide.planningGroupes[placement.jour][originalPlaced.heure_debut]) planningValide.planningGroupes[placement.jour][originalPlaced.heure_debut] = [];
+                    planningValide.planningGroupes[placement.jour][originalPlaced.heure_debut].push(originalPlaced.seance_id);
+
+                    if (!planningValide.planningSalles[placement.jour]) planningValide.planningSalles[placement.jour] = {};
+                    if (!planningValide.planningSalles[placement.jour][originalPlaced.heure_debut]) planningValide.planningSalles[placement.jour][originalPlaced.heure_debut] = [];
+                    planningValide.planningSalles[placement.jour][originalPlaced.heure_debut].push(placement.salle_id);
+
+                    reassigned = true;
+                    break;
+                } else {
+                    // If not moved, restore blocker to its original occupancy so we don't break other checks
+                    if (!occSalles[keyBlock]) occSalles[keyBlock] = new Set();
+                    occSalles[keyBlock].add(blocker.salle_id);
+                    if (blocker.groupe_id) {
+                        if (!occGroupes[keyBlock]) occGroupes[keyBlock] = new Set();
+                        occGroupes[keyBlock].add(blocker.groupe_id);
+                    }
+                    if (blocker.enseignant_id) {
+                        if (!occEnseignants[keyBlock]) occEnseignants[keyBlock] = new Set();
+                        occEnseignants[keyBlock].add(blocker.enseignant_id);
+                    }
+                    // restore tracking arrays
+                    if (!planningValide.planningGroupes[blocker.jour]) planningValide.planningGroupes[blocker.jour] = {};
+                    if (!planningValide.planningGroupes[blocker.jour][blocker.heure_debut]) planningValide.planningGroupes[blocker.jour][blocker.heure_debut] = [];
+                    planningValide.planningGroupes[blocker.jour][blocker.heure_debut].push(blocker.seance_id);
+                    if (!planningValide.planningSalles[blocker.jour]) planningValide.planningSalles[blocker.jour] = {};
+                    if (!planningValide.planningSalles[blocker.jour][blocker.heure_debut]) planningValide.planningSalles[blocker.jour][blocker.heure_debut] = [];
+                    planningValide.planningSalles[blocker.jour][blocker.heure_debut].push(blocker.salle_id);
+                }
+            }
         }
 
-        // Ajouter la salle
-        if (!planningValide.planningSalles[placement.jour]) {
-            planningValide.planningSalles[placement.jour] = {};
+        if (!reassigned) {
+            conflitsDetectes.push({
+                type: 'Conflit détecté et non résolu',
+                details: 'Aucune réaffectation possible',
+                seanceId: placement.seance_id
+            });
+            console.warn(`[ALGO][VALIDATION] Séance SUPPRIMÉE après échec de réaffectation: id=${placement.seance_id}`);
         }
-        if (!planningValide.planningSalles[placement.jour][placement.heure_debut]) {
-            planningValide.planningSalles[placement.jour][placement.heure_debut] = [];
-        }
-        planningValide.planningSalles[placement.jour][placement.heure_debut].push(placement.salle_id);
     }
 
     if (conflitsDetectes.length > 0) {
         // Conflits détectés et corrigés automatiquement
+        // Log global
+        console.warn(`[ALGO][VALIDATION] ${conflitsDetectes.length} séance(s) supprimée(s) lors de la validation/correction des conflits.`);
     }
 
     return planningValide;
@@ -767,73 +937,50 @@ function validerEtCorrigerConflits(
 export async function genererEmploiDuTemps(
     sectionId: string,
     setMessage: (msg: string) => void,
-    niveau?: string
+    niveau?: string,
+    filiereId?: string
 ): Promise<boolean> {
+    // --- DEBUG LOG ---
+    console.log('[ALGO][DEBUG] Début de la génération de l\'emploi du temps');
     // --- Étape 1: Récupération des données ---
-    setMessage('1/7 - Récupération des données...');
-
-    // a. Récupérer tous les groupes de la section
-    const { data: groupes, error: groupesError } = await supabase
-        .from('groupes')
-        .select('id, nom, niveau, specialite, section_id')
-        .eq('section_id', sectionId)
-        .order('nom');
-
-    const groupesIdsSet = new Set((groupes || []).map(g => g.id));
+    setMessage(filiereId || '');
 
 
-    if (groupesError || !groupes || groupes.length === 0) {
-        setMessage('Aucun groupe trouvé pour cette section.');
-        return false;
-    }
+    // a. Récupérer toutes les séances de la section, filière et niveau sélectionnés
+    setMessage('1/7 - Récupération des séances de la section, filière et niveau...');
 
-    const groupeIds = groupes.map(g => g.id);
-
-    // b. Récupérer TOUS les cours du niveau si spécifié
-    let coursIds: string[] = [];
-    if (niveau) {
-        setMessage(`1/7 - Récupération de TOUS les cours du niveau ${niveau}...`);
-        const { data: cours, error: coursError } = await supabase
-            .from('cours')
-            .select('id, nom')
-            .eq('niveau', niveau);
-
-        if (coursError || !cours || cours.length === 0) {
-            setMessage(`Aucun cours trouvé pour le niveau ${niveau}.`);
-            return false;
-        }
-
-        coursIds = cours.map(c => c.id);
-    }
-
-    // c. Récupérer toutes les séances de ces groupes ET cours
-    let seancesQuery = supabase
+    let seancesFiltrees = [];
+    // Récupérer toutes les séances qui correspondent à la section, la filière et le niveau (pas de jointures)
+    const { data: seances, error: seancesError } = await supabase
         .from('seances')
-        .select('*, cours(nom, niveau), types_seances(nom), enseignants(nom)')
-        .in('groupe_id', groupeIds);
+        .select('*')
+        .eq('section_id', sectionId)
+        .eq('niveau', niveau)
+        .eq('filiere_id', filiereId);
 
-    // Si un niveau est spécifié, filtrer par les cours de ce niveau
-    if (niveau && coursIds.length > 0) {
-        seancesQuery = seancesQuery.in('cours_id', coursIds);
-    }
-
-    const { data: seances, error: seancesError } = await seancesQuery;
-
-    // Filtrer les séances pour ne garder que celles dont le groupe_id est bien dans la section
-    const seancesFiltrees = (seances || []).filter(s => groupesIdsSet.has(s.groupe_id));
-
-    if (seancesError || !seancesFiltrees || seancesFiltrees.length === 0) {
-        const message = niveau ?
-            `Erreur ou aucune séance à planifier pour cette section au niveau ${niveau}. ${seancesError?.message || ''}` :
-            `Erreur ou aucune séance à planifier pour cette section. ${seancesError?.message || ''}`;
-        setMessage(message);
+    if (seancesError || !seances || seances.length === 0) {
+        setMessage('Erreur ou aucune séance trouvée pour cette section, filière et niveau.');
         return false;
     }
 
-    // Afficher le résumé des séances trouvées
-    // const coursTrouves = [...new Set(seancesFiltrees.map(s => (s.cours as { nom: string })?.nom))];
+    // Récupérer les types de séances pour faire le mapping id -> nom
+    const { data: typesSeances, error: typesSeancesError } = await supabase
+        .from('types_seances')
+        .select('id, nom');
+    if (typesSeancesError || !typesSeances) {
+        setMessage('Erreur lors de la récupération des types de séances.');
+        return false;
+    }
+    // Création du mapping id -> nom
+    const typeIdToNom: Record<string, string> = {};
+    typesSeances.forEach((t: {id: string, nom: string}) => {
+        typeIdToNom[t.id] = t.nom;
+    });
+    // Ajoute le nom du type à chaque séance (pour simplifier le filtrage)
+    seancesFiltrees = seances.map(s => ({ ...s, type_nom: typeIdToNom[s.type_id] || '' }));
 
-    // d. Récupérer toutes les salles
+
+    // c. Récupérer toutes les salles
     const { data: salles, error: sallesError } = await supabase.from('salles').select('id, nom, capacite');
     if (sallesError || !salles || salles.length === 0) {
         setMessage(`Erreur ou aucune salle disponible. ${sallesError?.message || ''}`);
@@ -854,27 +1001,28 @@ export async function genererEmploiDuTemps(
         (!s.capacite || s.capacite < 100) // Salles avec capacité normale
     );
 
+
     // --- Étape 2: Organisation et tri des séances par difficulté ---
     setMessage('2/7 - Organisation et tri des séances...');
 
-    // Séparer les séances par type
-    const seancesCM = seancesFiltrees.filter(s => (s.types_seances as { nom?: string } | undefined)?.nom?.toLowerCase().includes('cm'));
-    const seancesTD = seancesFiltrees.filter(s => (s.types_seances as { nom?: string } | undefined)?.nom?.toLowerCase().includes('td'));
-    const seancesTP = seancesFiltrees.filter(s => (s.types_seances as { nom?: string } | undefined)?.nom?.toLowerCase().includes('tp'));
-
-
+    // Séparer les séances par type (en utilisant le nom du type)
+    const seancesCM = seancesFiltrees.filter(s => s.type_nom && s.type_nom.toLowerCase().includes('cm'));
+    const seancesTD = seancesFiltrees.filter(s => s.type_nom && s.type_nom.toLowerCase().includes('td'));
+    const seancesTP = seancesFiltrees.filter(s => s.type_nom && s.type_nom.toLowerCase().includes('tp'));
 
     // Trier les séances par difficulté de placement (plus difficile en premier)
     const toutesSeances = [...seancesCM, ...seancesTD, ...seancesTP];
+    console.log('massine',seancesFiltrees)
+    // On ne passe plus groupes, on passe un tableau vide
     const seancesTriees = toutesSeances.sort((a, b) => {
-        const difficulteA = calculerDifficultePlacement(a, groupes);
-        const difficulteB = calculerDifficultePlacement(b, groupes);
+        const difficulteA = calculerDifficultePlacement(a, []);
+        const difficulteB = calculerDifficultePlacement(b, []);
         return difficulteB - difficulteA; // Ordre décroissant
     });
 
 
     // --- Étape 3: Initialisation du planning...');
-    const joursValides = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]; // Exclut Vendredi et Samedi
+    const joursValides = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]; // Semaine algérienne : exclut Vendredi et Samedi
     const creneaux: Creneau[] = [
         { debut: '08:00:00', fin: '09:30:00' },
         { debut: '09:30:00', fin: '11:00:00' },
@@ -896,19 +1044,18 @@ export async function genererEmploiDuTemps(
         { debut: '08:00:00', fin: '09:30:00' },
         { debut: '09:30:00', fin: '11:00:00' },
         { debut: '11:00:00', fin: '12:30:00' },
-        { debut: '12:30:00', fin: '13:30:00' }, // Pause déjeuner courte
         { debut: '13:30:00', fin: '15:00:00' },
         { debut: '15:00:00', fin: '16:30:00' },
-        { debut: '16:30:00', fin: '18:00:00' }, // Créneau supplémentaire
     ];
 
     // --- Étape 4: Algorithme de backtracking ---
     setMessage('4/7 - Placement des séances avec backtracking...');
 
+
     const resultat = backtrackingPlacement(
         seancesTriees,
         initialState,
-        groupes,
+        [], // groupes n'est plus utilisé
         amphis,
         sallesNormales,
         joursValides,
@@ -923,7 +1070,6 @@ export async function genererEmploiDuTemps(
 
 📊 STATISTIQUES GÉNÉRALES:
 • Séances totales: ${seancesTriees.length}
-• Groupes: ${groupes.length}
 • Amphithéâtres: ${amphis.length}
 • Salles normales: ${sallesNormales.length}
 • Créneaux disponibles: ${joursValides.length} jours × ${creneaux.length} créneaux = ${joursValides.length * creneaux.length} slots
@@ -946,15 +1092,17 @@ export async function genererEmploiDuTemps(
 4. Vérifier la disponibilité des enseignants
         `;
         setMessage(debugInfo);
+        console.log('push final', debugInfo)
         return false;
     }
 
     // --- Étape 5: Amélioration locale ---
     setMessage('5/7 - Amélioration locale du planning...');
 
+
     const planningAmeliore = ameliorationLocale(
         resultat,
-        groupes,
+        [], // groupes n'est plus utilisé
         amphis,
         sallesNormales,
         joursValides,
@@ -964,6 +1112,7 @@ export async function genererEmploiDuTemps(
     // --- Étape 5.5: Optimisation avancée ---
     setMessage('5.5/7 - Optimisation avancée avec recherche tabou...');
 
+
     const planningOptimise = optimisationAvancee(
         planningAmeliore
     );
@@ -971,14 +1120,10 @@ export async function genererEmploiDuTemps(
     // --- Étape 6: Sauvegarde du résultat ---
     setMessage('6/7 - Sauvegarde du nouvel emploi du temps...');
 
-    // a. Supprimer les anciennes entrées de l'emploi du temps pour cette section
-    // Récupérer toutes les séances de la section (tous niveaux)
-    const { data: allSeancesSection } = await supabase
-        .from('seances')
-        .select('id')
-        .in('groupe_id', groupeIds);
 
-    const allSeanceIds = (allSeancesSection || []).map(s => s.id);
+    // a. Supprimer les anciennes entrées de l'emploi du temps pour cette section
+    // On récupère toutes les séances de la section (tous niveaux) via seancesFiltrees
+    const allSeanceIds = seancesFiltrees.map(s => s.id);
 
     // Supprimer toutes les anciennes entrées de l'emploi du temps pour cette section
     const { error: deleteError } = await supabase
@@ -988,13 +1133,30 @@ export async function genererEmploiDuTemps(
 
     if (deleteError) {
         setMessage(`Erreur lors du nettoyage de l'ancien planning: ${deleteError.message}`);
+        console.log(`push final 2: ${deleteError.message}`);
+
         return false;
     }
 
-    // b. Insérer le nouveau planning
-    const { error: insertError } = await supabase.from('emplois_du_temps').insert(planningOptimise.planning);
+    // b. Insérer le nouveau planning (seance_id, jour, date, heure_debut, heure_fin, salle_id)
+    moment.locale('fr');
+    moment.updateLocale('fr', { week: { dow: 0, doy: 4 } });
+    const normalizeHeureForInsert = (h: string) => {
+        if (!h) return h;
+        const parts = h.split(':');
+        if (parts.length === 2) return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:00`;
+        if (parts.length === 3) return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:${parts[2].padStart(2, '0')}`;
+        return h;
+    };
+
+    const planningToInsert = planningOptimise.planning.map(({ seance_id, jour, heure_debut, heure_fin, salle_id }) => {
+        return ({ seance_id, jour, heure_debut: normalizeHeureForInsert(heure_debut), heure_fin: normalizeHeureForInsert(heure_fin), salle_id });
+    });
+    const { error: insertError } = await supabase.from('emplois_du_temps').insert(planningToInsert);
     if (insertError) {
         setMessage(`Erreur lors de la sauvegarde du nouveau planning: ${insertError.message}`);
+               console.log(`push: ${insertError.message}`);
+
         return false;
     }
 
@@ -1010,7 +1172,8 @@ export async function genererEmploiDuTemps(
     // --- Étape 7.5: Validation finale et correction des conflits ---
     setMessage('7.5/7 - Validation finale et correction des conflits...');
 
-    const planningValide = validerEtCorrigerConflits(planningOptimise, groupes, amphis, sallesNormales);
+
+    const planningValide = validerEtCorrigerConflits(planningOptimise, [], amphis, sallesNormales);
 
     // VÉRIFICATION FINALE DE COHÉRENCE
     const verificationCohérence = verifierCohérencePlanning(planningValide.planning);
@@ -1031,7 +1194,8 @@ export async function genererEmploiDuTemps(
             .in('seance_id', seancesFiltrees.map(s => s.id));
 
         if (!updateError) {
-            const { error: insertError } = await supabase.from('emplois_du_temps').insert(planningValide.planning);
+            const planningToInsert = planningValide.planning.map(({ seance_id, jour, heure_debut, heure_fin, salle_id }) => ({ seance_id, jour, heure_debut, heure_fin, salle_id }));
+            const { error: insertError } = await supabase.from('emplois_du_temps').insert(planningToInsert);
             if (insertError) {
                 setMessage(`Erreur lors de la mise à jour du planning corrigé: ${insertError.message}`);
             }
@@ -1068,7 +1232,7 @@ export async function genererEmploiDuTemps(
         const nonPlacees = seancesTriees.filter(s => !idsPlacees.has(s.id));
         messageFinal += `\n\nSéances non placées :\n`;
         nonPlacees.forEach(s => {
-            messageFinal += `• ${s.cours?.nom || 'Cours'} (${s.types_seances?.nom || 'Type'})\n`;
+            messageFinal += `• Séance ID: ${s.id} (Type ID: ${s.type_id})\n`;
         });
     }
 

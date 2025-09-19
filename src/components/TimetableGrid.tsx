@@ -17,6 +17,7 @@ interface EventData {
     enseignants: { nom: string };
     salles: { nom: string };
     groupe: { nom: string };
+    section: { nom: string };
 }
 
 interface TimetableGridProps {
@@ -32,10 +33,11 @@ const TIME_SLOTS = [
     { start: '08:00', end: '09:30' },
     { start: '09:30', end: '11:00' },
     { start: '11:00', end: '12:30' },
-    { start: '12:30', end: '13:30', lunch: true }, // Pause déjeuner
     { start: '13:30', end: '15:00' },
     { start: '15:00', end: '16:30' },
 ];
+
+
 
 const DAYS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi'];
 
@@ -67,32 +69,40 @@ export default function TimetableGrid({ events, currentDate, sectionName, niveau
         cours: { nom: 'Test' },
         enseignants: { nom: 'Professeur Test' },
         salles: { nom: 'Salle 101' },
-        groupe: { nom: 'Groupe Test' }
+        groupe: { nom: 'Groupe Test' },
+        section: { nom: 'Section Test' }
     };
     const [localEvents, setLocalEvents] = useState(events.length > 0 ? events : [testEvent]);
     const tableRef = React.useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        console.log('🔍 DEBUG - TimetableGrid useEffect - Events received:', events);
-        console.log('🔍 DEBUG - TimetableGrid useEffect - Events length:', events.length);
-        console.log('🔍 DEBUG - TimetableGrid useEffect - Setting localEvents to:', events.length > 0 ? events : []);
+        // Configuration moment.js pour la semaine algérienne (Dimanche = premier jour)
+        moment.locale('fr', {
+            week: {
+                dow: 0, // Dimanche comme premier jour de la semaine
+                doy: 4
+            }
+        });
+        
         setLocalEvents(events.length > 0 ? events : []); // Reset to empty array if no events
-    }, [events]);
+    }, [events, currentDate]);
 
     // Add debugging for localEvents changes
     useEffect(() => {
-        console.log('🔍 DEBUG - TimetableGrid localEvents changed:', localEvents);
-        console.log('🔍 DEBUG - TimetableGrid localEvents length:', localEvents.length);
+        // Removed debug logs for performance
     }, [localEvents]);
 
     const grid: (EventData[])[][] = Array(DAYS.length).fill(null).map(() => Array(TIME_SLOTS.length).fill(null).map(() => []));
-    const weekStart = moment(currentDate).startOf('week');
 
     localEvents.forEach(event => {
         const eventDate = moment(event.date);
-        const dayIndex = eventDate.diff(weekStart, 'days');
+        const eventDayName = eventDate.format('dddd');
+        const dayIndex = DAYS.findIndex(day => day.toLowerCase() === eventDayName.toLowerCase());
         const eventStartHour = event.heure_debut.substring(0, 5);
         const timeSlotIndex = TIME_SLOTS.findIndex(slot => slot.start === eventStartHour);
+        
+        console.log(`🔍 Grid placement - Event ${event.id}: date=${event.date}, eventDay=${eventDayName}, dayIndex=${dayIndex}, timeSlotIndex=${timeSlotIndex}`);
+        
         if (dayIndex >= 0 && dayIndex < DAYS.length && timeSlotIndex !== -1) {
             grid[dayIndex][timeSlotIndex].push(event);
         }
@@ -117,43 +127,102 @@ export default function TimetableGrid({ events, currentDate, sectionName, niveau
         return !unavailableDays.includes(dayOfWeek);
     };
 
-    const handleDragEnd = async (result: DropResult) => {
-        if (!result.destination) return;
-        const eventId = result.draggableId;
-        const [newDayIndex, newGridIndex] = result.destination.droppableId.split('-').map(Number);
-        if (newDayIndex >= DAYS.length) return; // Empêcher le drop au-delà des jours disponibles
-        const weekStart = moment(currentDate).startOf('week');
-        const newDate = weekStart.clone().add(newDayIndex, 'days').format('YYYY-MM-DD');
+const handleDragEnd = async (result: DropResult) => {
+    if (!result.destination) return;
+    const eventId = result.draggableId;
+    const [newDayIndex, newGridIndex] = result.destination.droppableId.split('-').map(Number);
 
-        // Check teacher availability
-        const movedEvent = localEvents.find(event => String(event.id) === eventId);
-        if (movedEvent && movedEvent.enseignants?.nom) {
-            const isAvailable = await checkTeacherAvailability(movedEvent.enseignants.nom, newDate);
-            if (!isAvailable) {
-                alert("Le professeur est indisponible à ce créneau.");
-                return; // Do not move the event if the teacher is unavailable
-            }
+    if (newDayIndex >= DAYS.length) return;
+    const weekStart = moment(currentDate).startOf('week');
+    const newDate = weekStart.clone().add(newDayIndex, 'days').format('YYYY-MM-DD');
+    const slot = TIME_SLOTS[newGridIndex];
+
+    const movedEvent = localEvents.find(event => String(event.id) === eventId);
+    if (!movedEvent) return;
+
+    if (movedEvent.enseignants?.nom) {
+        const isAvailable = await checkTeacherAvailability(movedEvent.enseignants.nom, newDate);
+        if (!isAvailable) {
+            alert("Impossible : L'enseignant n'est pas disponible ce jour.");
+            return;
         }
+    }
 
-        // Vérifier si la cellule cible est déjà occupée
-        const alreadyExists = localEvents.some(ev => ev.date === newDate && ev.heure_debut === TIME_SLOTS[newGridIndex].start);
-        if (alreadyExists) return; // Annuler le déplacement si la case est occupée
+    // Récupérer tous les events déjà dans ce slot
+    const eventsInSlot = localEvents.filter(ev =>
+        moment(ev.date).isSame(newDate, 'day') &&
+        ev.heure_debut === slot.start
+    );
 
-        setLocalEvents(prevEvents => {
-            const movedEvent = prevEvents.find(event => String(event.id) === eventId);
-            if (!movedEvent) return prevEvents;
-            const filtered = prevEvents.filter(ev => String(ev.id) !== eventId);
-            return [
-                ...filtered,
-                {
-                    ...movedEvent,
-                    date: newDate,
-                    heure_debut: TIME_SLOTS[newGridIndex].start,
-                }
-            ];
-        });
-    };
+    // 1. Contrainte CM/TD/TP section stricte
+    // Empêche tout TD/TP d'être placé là où il y a un CM du même cours/section, et vice versa
+    const isCM = movedEvent.type.toLowerCase() === 'cm';
+    const isTDTP = movedEvent.type.toLowerCase() === 'td' || movedEvent.type.toLowerCase() === 'tp';
+    if (isCM) {
+        if (eventsInSlot.some(ev =>
+            (ev.type.toLowerCase() === 'td' || ev.type.toLowerCase() === 'tp') &&
+            ev.cours?.nom === movedEvent.cours?.nom &&
+            ev.section?.nom === movedEvent.section?.nom
+        )) {
+            alert("Impossible : Un TD/TP de la même section/cours existe déjà dans ce créneau.");
+            return;
+        }
+        // Empêche aussi d'ajouter un CM si un CM du même cours/section existe déjà (évite doublon CM)
+        if (eventsInSlot.some(ev =>
+            ev.type.toLowerCase() === 'cm' &&
+            ev.cours?.nom === movedEvent.cours?.nom &&
+            ev.section?.nom === movedEvent.section?.nom
+        )) {
+            alert("Impossible : Un CM de la même section/cours existe déjà dans ce créneau.");
+            return;
+        }
+    } else if (isTDTP) {
+        // Empêche d'ajouter un TD/TP là où il y a un CM du même cours/section
+        if (eventsInSlot.some(ev =>
+            ev.type.toLowerCase() === 'cm'
+        )) {
+            alert("Impossible : Un CM de la même section/cours existe déjà dans ce créneau.");
+            return;
+        }
+        // Si un autre TD/TP du même groupe existe déjà dans ce slot, bloquer
+        if (eventsInSlot.some(ev =>
+            (ev.type === 'TD' || ev.type === 'TP') &&
+            ev.groupe?.nom === movedEvent.groupe?.nom
+        )) {
+            alert("Impossible : Ce groupe a déjà un TD/TP dans ce créneau.");
+            return;
+        }
+    }
 
+    // 2. Contrainte enseignant unique
+    if (eventsInSlot.some(ev =>
+        ev.enseignants?.nom === movedEvent.enseignants?.nom
+    )) {
+        alert("Impossible : L'enseignant a déjà un cours dans ce créneau.");
+        return;
+    }
+
+    // 3. Contrainte salle unique
+    if (eventsInSlot.some(ev =>
+        ev.salles?.nom === movedEvent.salles?.nom
+    )) {
+        alert("Impossible : La salle est déjà occupée dans ce créneau.");
+        return;
+    }
+
+    // Si tout est ok, déplacer l'événement
+    setLocalEvents(prevEvents => {
+        const filtered = prevEvents.filter(ev => String(ev.id) !== eventId);
+        return [
+            ...filtered,
+            {
+                ...movedEvent,
+                date: newDate,
+                heure_debut: slot.start,
+            }
+        ];
+    });
+};
     const exportPDF = async () => {
         const pdf = new jsPDF({
             orientation: 'landscape',
@@ -271,28 +340,6 @@ export default function TimetableGrid({ events, currentDate, sectionName, niveau
 
         // === CORPS DU TABLEAU AVEC STYLE ÉLÉGANT ===
         TIME_SLOTS.forEach((slot, slotIndex) => {
-            // Pause déjeuner avec design sophistiqué
-            if (slot.lunch) {
-                // Fond avec bordure dorée élégante
-                pdf.setFillColor(styles.lunchBg[0], styles.lunchBg[1], styles.lunchBg[2]);
-                pdf.roundedRect(margin, yPos, tableWidth, rowHeight, 2, 2, 'F');
-
-                // Bordure dorée subtile
-                pdf.setDrawColor(styles.lunchBorder[0], styles.lunchBorder[1], styles.lunchBorder[2]);
-                pdf.setLineWidth(0.5);
-                pdf.roundedRect(margin, yPos, tableWidth, rowHeight, 2, 2, 'S');
-
-                // Texte élégant centré
-                pdf.setTextColor(styles.lunchText[0], styles.lunchText[1], styles.lunchText[2]);
-                pdf.setFont('helvetica', 'bold');
-                pdf.setFontSize(12);
-                pdf.text(` PAUSE DÉJEUNER  •  ${slot.start} - ${slot.end}`,
-                    margin + tableWidth / 2, yPos + 12, { align: 'center' });
-                pdf.setFont('helvetica', 'normal');
-
-                yPos += rowHeight;
-                return;
-            }
 
             // Alternance des couleurs avec style moderne
             const isEven = slotIndex % 2 === 0;
@@ -401,14 +448,12 @@ export default function TimetableGrid({ events, currentDate, sectionName, niveau
             pdf.line(x, 45 + rowHeight, x, yPos);
         }
 
-        // Lignes de séparation horizontales subtiles (sauf pause déjeuner)
+        // Lignes de séparation horizontales subtiles
         let currentY = 45 + rowHeight;
-        TIME_SLOTS.forEach((slot) => {
-            if (!slot.lunch) {
-                pdf.setDrawColor(styles.border[0], styles.border[1], styles.border[2]);
-                pdf.setLineWidth(0.1);
-                pdf.line(margin + colWidth, currentY, margin + tableWidth, currentY);
-            }
+        TIME_SLOTS.forEach(() => {
+            pdf.setDrawColor(styles.border[0], styles.border[1], styles.border[2]);
+            pdf.setLineWidth(0.1);
+            pdf.line(margin + colWidth, currentY, margin + tableWidth, currentY);
             currentY += rowHeight;
         });
 
@@ -523,26 +568,22 @@ export default function TimetableGrid({ events, currentDate, sectionName, niveau
         html += '</tr></thead><tbody>';
 
         for (const slot of TIME_SLOTS) {
-            if (slot.lunch) {
-                html += `<tr><td colspan='${jours.length + 1}' style='background:#fffbe6;color:#b45309;font-weight:bold'>🥗 Pause Déjeuner (${slot.start} - ${slot.end})</td></tr>`;
-            } else {
-                html += `<tr><td>${slot.start} - ${slot.end}</td>`;
-                for (let dayIdx = 0; dayIdx < jours.length; dayIdx++) {
-                    const dayName = jours[dayIdx].toLowerCase();
-                    const event = localEvents.find(ev =>
-                        moment(ev.date).format('dddd').toLowerCase() === dayName &&
-                        ev.heure_debut === slot.start
-                    );
+            html += `<tr><td>${slot.start} - ${slot.end}</td>`;
+            for (let dayIdx = 0; dayIdx < jours.length; dayIdx++) {
+                const dayName = jours[dayIdx].toLowerCase();
+                const event = localEvents.find(ev =>
+                    moment(ev.date).format('dddd').toLowerCase() === dayName &&
+                    ev.heure_debut === slot.start
+                );
 
-                    if (event) {
-                        const typeColor = getTypeColorHTML(event.type);
-                        html += `<td><b>${event.cours?.nom || ''}</b><br>${event.enseignants?.nom || ''}<br>${event.salles?.nom || ''}<br><span style='font-size:10px;color:#fff;background:${typeColor};border-radius:4px;padding:2px 4px;font-weight:bold'>${event.type || ''}</span></td>`;
-                    } else {
-                        html += '<td></td>';
-                    }
+                if (event) {
+                    const typeColor = getTypeColorHTML(event.type);
+                    html += `<td><b>${event.cours?.nom || ''}</b><br>${event.enseignants?.nom || ''}<br>${event.salles?.nom || ''}<br><span style='font-size:10px;color:#fff;background:${typeColor};border-radius:4px;padding:2px 4px;font-weight:bold'>${event.type || ''}</span></td>`;
+                } else {
+                    html += '<td></td>';
                 }
-                html += '</tr>';
             }
+            html += '</tr>';
         }
         html += '</tbody></table></body></html>';
 
@@ -602,23 +643,16 @@ export default function TimetableGrid({ events, currentDate, sectionName, niveau
                         </thead>
                         <tbody>
                             {TIME_SLOTS.map((slot, rowIdx) => (
-                                slot.lunch ? (
-                                    <tr key="lunch">
-                                        <td className="bg-yellow-50 text-yellow-700 font-semibold text-center px-4 py-4 border-b border-indigo-100" colSpan={DAYS.length + 1}>
-                                            🥗 Pause Déjeuner (12:30 - 13:30)
-                                        </td>
-                                    </tr>
-                                ) : (
-                                    <tr key={slot.start}>
+                                <tr key={slot.start}>
                                         <td className="bg-indigo-50 text-indigo-700 font-semibold text-center px-4 py-3 border-b border-indigo-100 sticky left-0 z-10">
                                             {slot.start} - {slot.end}
                                         </td>
                                         {DAYS.map((day, dayIdx) => {
                                             const droppableId = `${dayIdx}-${rowIdx}`;
-                                            const events = localEvents.filter((ev: EventData) =>
-                                                moment(ev.date).format('dddd').toLowerCase() === day.toLowerCase() &&
-                                                ev.heure_debut === slot.start
-                                            );
+
+                                            // Use precomputed grid for this cell to avoid re-filtering and inconsistencies
+                                            const events = grid[dayIdx][rowIdx] || [];
+
                                             return (
                                                 <td key={day + slot.start} className="align-top px-2 py-2 border-b border-indigo-100 min-w-[160px]">
                                                     <Droppable droppableId={droppableId}>
@@ -645,6 +679,7 @@ export default function TimetableGrid({ events, currentDate, sectionName, niveau
                                                                                     <span className="text-xs text-gray-700 font-medium">{event.enseignants?.nom}</span>
                                                                                     <span className="text-xs text-gray-500">{event.salles?.nom}</span>
                                                                                     <div className="text-xs text-gray-600">Groupe : {event.groupe?.nom}</div>
+                                                                                    <div className="text-xs text-gray-600">Section : {event.section?.nom}</div>
                                                                                     {event.type && (
                                                                                         <span className={`text-[10px] ${getTypeColor(event.type).bg} ${getTypeColor(event.type).text} ${getTypeColor(event.type).border} border rounded px-2 py-1 mt-1 font-semibold`}>
                                                                                             {event.type}
@@ -665,8 +700,7 @@ export default function TimetableGrid({ events, currentDate, sectionName, niveau
                                             );
                                         })}
                                     </tr>
-                                )
-                            ))}
+                                ))}
                         </tbody>
                     </table>
                 </div>

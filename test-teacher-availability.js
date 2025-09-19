@@ -30,18 +30,11 @@ async function checkTeacherAvailability(teacherName, newDate, newHeure) {
     const dayOfWeek = moment(newDate).format('dddd');
     const isAvailable = !unavailableDays.includes(dayOfWeek);
 
-    console.log(`Teacher: ${teacherName}`);
-    console.log(`Date: ${newDate} (${dayOfWeek})`);
-    console.log(`Unavailable days: ${unavailableDays.join(', ')}`);
-    console.log(`Is available: ${isAvailable}`);
-    console.log('---');
-
     return isAvailable;
 }
 
 // Test cases
 async function runTests() {
-    console.log('Testing teacher availability logic:\n');
 
     // Test 1: Teacher unavailable on Thursday
     await checkTeacherAvailability('Professeur Test', '2024-06-13', '08:00'); // Thursday

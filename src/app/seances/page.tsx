@@ -6,6 +6,8 @@ import { FaClipboardList, FaPlus, FaTrash, FaPencilAlt, FaArrowLeft, FaFileExcel
 import Link from 'next/link'
 import * as XLSX from 'xlsx'
 
+// Ajout du type Section
+interface Section { id: string; nom: string; niveau: string | null; filiere_id?: string | null; }
 // Interfaces pour les données externes
 interface Cour { id: string; nom: string; niveau: string | null; }
 interface TypeSeance { id: string; nom: string; }
@@ -18,21 +20,30 @@ interface Seance {
     duree_minutes: number | null
     cours_id: string
     type_id: string
-    groupe_id: string
+    groupe_id: string | null
+    section_id?: string | null
     enseignant_id: string | null
     cours: { nom: string } | null
+    filiere_id: string | null
+    niveau?: string | null
     types_seances: { nom: string } | null
     groupes: { nom: string } | null
     enseignants: { nom: string } | null
+    sections?: { nom: string } | null
+    filieres?: { nom: string } | null
 }
+interface Filiere { id: string; nom: string; }
 
 // Interface pour la création/modification de séance
 interface SeanceForm {
     cours_id: string
     type_id: string
     groupe_id: string
+    section_id?: string
+    filiere_id?: string
     enseignant_id: string
     duree_minutes: string
+    niveau?: string
 }
 
 interface ExcelRow {
@@ -45,6 +56,7 @@ interface ExcelRow {
 
 const NIVEAUX = ['L1', 'L2', 'L3', 'M1', 'M2'];
 
+
 export default function SeancesPage() {
     // États pour les données de formulaire
     const [seances, setSeances] = useState<Seance[]>([])
@@ -52,11 +64,20 @@ export default function SeancesPage() {
     const [types, setTypes] = useState<TypeSeance[]>([])
     const [enseignants, setEnseignants] = useState<Enseignant[]>([])
     const [groupes, setGroupes] = useState<Groupe[]>([])
+    const [sections, setSections] = useState<Section[]>([])
+    const [filieres, setFilieres] = useState<Filiere[]>([])
     const [selectedNiveau, setSelectedNiveau] = useState<string>('')
 
     // États pour le formulaire et l'UI
     const [newSeance, setNewSeance] = useState<SeanceForm>({
-        cours_id: '', type_id: '', groupe_id: '', enseignant_id: '', duree_minutes: '90'
+        cours_id: '',
+        type_id: '',
+        groupe_id: '',
+        section_id: '',
+        filiere_id: '',
+        enseignant_id: '',
+        duree_minutes: '90',
+        niveau: ''
     })
     const [editingSeance, setEditingSeance] = useState<Seance | null>(null)
     const [editingSeanceForm, setEditingSeanceForm] = useState<SeanceForm | null>(null)
@@ -65,16 +86,18 @@ export default function SeancesPage() {
     const [success, setSuccess] = useState<string | null>(null)
     const [editingSelectedNiveau, setEditingSelectedNiveau] = useState<string>('')
 
-    // Chargement initial des données
+
+    // Chargement initial des données (hors sections)
     const fetchInitialData = useCallback(async () => {
         setLoading(true)
         try {
-            const [seancesResult, coursResult, typesResult, enseignantsResult, groupesResult] = await Promise.all([
-                supabase.from('seances').select('*, cours(*), types_seances(*), enseignants(*), groupes(*)').order('id', { ascending: false }),
+            const [seancesResult, coursResult, typesResult, enseignantsResult, groupesResult, filieresResult] = await Promise.all([
+                supabase.from('seances').select('*, cours(*), types_seances(*), enseignants(*), groupes(*), sections(*), filieres(*)').order('id', { ascending: false }),
                 supabase.from('cours').select('*').order('nom', { ascending: true }),
                 supabase.from('types_seances').select('*').order('nom', { ascending: true }),
                 supabase.from('enseignants').select('*').order('nom', { ascending: true }),
-                supabase.from('groupes').select('*').order('nom', { ascending: true })
+                supabase.from('groupes').select('*').order('nom', { ascending: true }),
+                supabase.from('filieres').select('*').order('nom', { ascending: true })
             ])
 
             if (seancesResult.error) throw seancesResult.error
@@ -88,12 +111,62 @@ export default function SeancesPage() {
             setTypes(typesResult.data || [])
             setEnseignants(enseignantsResult.data || [])
             setGroupes(groupesResult.data || [])
+            setFilieres(filieresResult.data || [])
         } catch {
             setError('Impossible de charger les données.')
         } finally {
             setLoading(false)
         }
     }, [])
+
+    // Charger dynamiquement les sections selon la filière sélectionnée (création)
+    useEffect(() => {
+        const fetchSections = async () => {
+            if (!newSeance.filiere_id) {
+                setSections([]);
+                return;
+            }
+            const { data, error } = await supabase
+                .from('sections')
+                .select('*')
+                .eq('filiere_id', newSeance.filiere_id)
+                .order('nom', { ascending: true });
+            console.log('[DEBUG] fetchSections (création) - filiere_id:', newSeance.filiere_id, 'data:', data, 'error:', error);
+            if (!error) {
+                setSections(data || []);
+            } else {
+                setSections([]);
+            }
+        };
+        fetchSections();
+    }, [newSeance.filiere_id]);
+
+    // Charger dynamiquement les sections selon la filière sélectionnée (édition)
+    const [editingSections, setEditingSections] = useState<Section[]>([]);
+    useEffect(() => {
+        const fetchEditingSections = async () => {
+            if (!editingSeanceForm?.filiere_id) {
+                setEditingSections([]);
+                return;
+            }
+            const { data, error } = await supabase
+                .from('sections')
+                .select('*')
+                .eq('filiere_id', editingSeanceForm.filiere_id)
+                .order('nom', { ascending: true });
+            console.log('[DEBUG] lynda fetchEditingSections - result:', { data, error });
+            if (!error) {
+                setEditingSections(data || []);
+            } else {
+                setEditingSections([]);
+            }
+        };
+        if (editingSeanceForm?.filiere_id) {
+            fetchEditingSections();
+        } else {
+            setEditingSections([]);
+        }
+    }, [editingSeanceForm?.filiere_id]);
 
     // Chargement initial des données
     useEffect(() => {
@@ -194,25 +267,53 @@ export default function SeancesPage() {
 
     // Fonctions CRUD
     const handleAddSeance = async (e: FormEvent) => {
-        e.preventDefault()
-        const { cours_id, groupe_id } = newSeance
-        if (!cours_id || !groupe_id) {
-            setError('Cours et Groupe sont obligatoires.')
-            return
+        e.preventDefault();
+        const { cours_id, type_id, groupe_id, section_id } = newSeance;
+        if (!cours_id) {
+            setError('Le cours est obligatoire.');
+            return;
         }
-        setError(null)
-        setSuccess(null)
+        // Trouver le type sélectionné
+        const typeObj = types.find(t => t.id === type_id);
+        const isCM = typeObj?.nom?.toLowerCase().includes('cm');
+        if (isCM && !section_id) {
+            setError('La section est obligatoire pour un CM.');
+            return;
+        }
+        if (!isCM && !groupe_id) {
+            setError('Le groupe est obligatoire pour ce type de séance.');
+            return;
+        }
+        setError(null);
+        setSuccess(null);
+        const insertObj = {
+            cours_id,
+            type_id,
+            enseignant_id: newSeance.enseignant_id || null,
+            section_id,
+            groupe_id,
+            duree_minutes: Number(newSeance.duree_minutes),
+            filiere_id: newSeance.filiere_id || null,
+            niveau: selectedNiveau || null
+        };
+        if (isCM) {
+            insertObj.section_id = section_id;
+            insertObj.groupe_id = '';
+        } else {
+            insertObj.groupe_id = groupe_id;
+            insertObj.section_id = section_id;
+        }
         const { data, error } = await supabase
             .from('seances')
-            .insert([{ ...newSeance, enseignant_id: newSeance.enseignant_id || null, duree_minutes: Number(newSeance.duree_minutes) }])
-            .select('*, cours(nom), types_seances(nom), groupes(nom), enseignants(nom)')
+            .insert([insertObj])
+            .select('*, cours(nom), types_seances(nom), groupes(nom), enseignants(nom), sections(*), filieres(*)');
         if (error) {
             const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
-            setError(`Erreur lors de l&apos;ajout: ${errorMessage}`);
+            setError(`Erreur lors de l'ajout: ${errorMessage}`);
         } else if (data) {
-            setSeances([...seances, ...(data as Seance[])])
-            setNewSeance({ duree_minutes: '90', cours_id: '', groupe_id: '', enseignant_id: '', type_id: '' })
-            setSuccess('Séance ajoutée avec succès.')
+            setSeances([...seances, ...(data as Seance[])]);
+            setNewSeance({ duree_minutes: '90', cours_id: '', groupe_id: '', section_id: '', enseignant_id: '', type_id: '', filiere_id: '', niveau: '' });
+            setSuccess('Séance ajoutée avec succès.');
         }
     }
 
@@ -230,14 +331,17 @@ export default function SeancesPage() {
     }
 
     const startEditing = (seance: Seance) => {
-        setEditingSeance(seance)
-        setEditingSeanceForm({
+        const form = {
             cours_id: seance.cours_id,
             type_id: seance.type_id,
-            groupe_id: seance.groupe_id,
+            groupe_id: seance.groupe_id || '',
             enseignant_id: seance.enseignant_id || '',
-            duree_minutes: seance.duree_minutes?.toString() || '90'
-        })
+            duree_minutes: seance.duree_minutes?.toString() || '90',
+            filiere_id: seance.filiere_id || ''
+        };
+        console.log('[DEBUG] startEditing - form:', form);
+        setEditingSeance(seance)
+        setEditingSeanceForm(form)
         // Initialiser le niveau basé sur le cours
         const coursActuel = cours.find(c => c.id === seance.cours_id)
         setEditingSelectedNiveau(coursActuel?.niveau || '')
@@ -253,6 +357,8 @@ export default function SeancesPage() {
             type_id: string;
             groupe_id: string;
             enseignant_id: string | null;
+            filiere_id: string | null;
+            section_id: string | null;
             duree_minutes: number;
         }> = {}
 
@@ -267,6 +373,14 @@ export default function SeancesPage() {
 
         if (editingSeanceForm.groupe_id && editingSeanceForm.groupe_id !== editingSeance.groupe_id) {
             updates.groupe_id = editingSeanceForm.groupe_id
+        }
+
+        if (editingSeanceForm.section_id && editingSeanceForm.section_id !== editingSeance.section_id) {
+            updates.section_id = editingSeanceForm.section_id
+        }
+
+        if (editingSeanceForm.filiere_id && editingSeanceForm.filiere_id !== editingSeance.filiere_id) {
+            updates.filiere_id = editingSeanceForm.filiere_id
         }
 
         // Gestion spéciale pour l'enseignant (peut être null ou vide)
@@ -297,7 +411,7 @@ export default function SeancesPage() {
             .from('seances')
             .update(updates)
             .eq('id', editingSeance.id)
-            .select('*, cours(nom), types_seances(nom), groupes(nom), enseignants(nom)')
+            .select('*, cours(nom), types_seances(nom), groupes(nom), enseignants(nom), sections(*), filieres(*)')
 
         if (error) {
             const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
@@ -323,6 +437,8 @@ export default function SeancesPage() {
                             <div><span className="font-medium">Cours :</span> {editingSeance.cours?.nom}</div>
                             <div><span className="font-medium">Type :</span> {editingSeance.types_seances?.nom}</div>
                             <div><span className="font-medium">Groupe :</span> {editingSeance.groupes?.nom}</div>
+                            <div><span className="font-medium">Section :</span> {editingSeance.sections?.nom ?? <span className="text-gray-400">N/A</span>}</div>
+                            <div><span className="font-medium">Filière :</span> {editingSeance.filieres?.nom ?? <span className="text-gray-400">N/A</span>}</div>
                             <div><span className="font-medium">Enseignant :</span> {editingSeance.enseignants?.nom || 'Non assigné'}</div>
                             <div><span className="font-medium">Durée :</span> {editingSeance.duree_minutes} min</div>
                         </div>
@@ -345,7 +461,31 @@ export default function SeancesPage() {
                                 ))}
                             </select>
                         </div>
-
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Filière</label>
+                            <select
+                                required
+                                value={editingSeanceForm.filiere_id || ''}
+                                onChange={e => setEditingSeanceForm({ ...editingSeanceForm, filiere_id: e.target.value })}
+                                className="w-full p-2 border rounded bg-gray-50"
+                            >
+                                <option value="">Sélectionner une filière</option>
+                                {filieres.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Section</label>
+                            <select
+                                required
+                                value={editingSeanceForm.section_id || ''}
+                                onChange={e => setEditingSeanceForm({ ...editingSeanceForm, section_id: e.target.value })}
+                                className="w-full p-2 border rounded bg-gray-50"
+                                disabled={!editingSeanceForm.filiere_id}
+                            >
+                                <option value="">Sélectionner une section</option>
+                                {editingSections.map(s => <option key={s.id} value={s.id}>{s.nom}</option>)}
+                            </select>
+                        </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Cours</label>
                             <select value={editingSeanceForm.cours_id} onChange={e => setEditingSeanceForm(editingSeanceForm ? { ...editingSeanceForm, cours_id: e.target.value } : null)} className="w-full p-2 border rounded" disabled={!editingSelectedNiveau}>
@@ -362,7 +502,6 @@ export default function SeancesPage() {
                                 ))}
                             </select>
                         </div>
-
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
                             <select value={editingSeanceForm.type_id} onChange={e => setEditingSeanceForm(editingSeanceForm ? { ...editingSeanceForm, type_id: e.target.value } : null)} className="w-full p-2 border rounded">
@@ -379,13 +518,12 @@ export default function SeancesPage() {
                                 ))}
                             </select>
                         </div>
-
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Groupe</label>
                             <select value={editingSeanceForm.groupe_id} onChange={e => setEditingSeanceForm(editingSeanceForm ? { ...editingSeanceForm, groupe_id: e.target.value } : null)} className="w-full p-2 border rounded">
                                 <option value="">Sélectionner un groupe</option>
                                 {editingSeance.groupes && (
-                                    <option value={editingSeance.groupe_id} className="font-semibold bg-gray-100">
+                                    <option value={editingSeance.groupe_id ?? ''} className="font-semibold bg-gray-100">
                                         {editingSeance.groupes.nom} (actuel)
                                     </option>
                                 )}
@@ -396,7 +534,6 @@ export default function SeancesPage() {
                                 ))}
                             </select>
                         </div>
-
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Enseignant</label>
                             <select value={editingSeanceForm.enseignant_id} onChange={e => setEditingSeanceForm({ ...editingSeanceForm, enseignant_id: e.target.value })} className="w-full p-2 border rounded">
@@ -417,12 +554,10 @@ export default function SeancesPage() {
                                 ))}
                             </select>
                         </div>
-
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Durée (minutes)</label>
                             <input type="number" value={editingSeanceForm.duree_minutes} onChange={e => setEditingSeanceForm({ ...editingSeanceForm, duree_minutes: e.target.value })} className="w-full p-2 border rounded" placeholder="Durée en minutes" />
                         </div>
-
                         <div className="flex justify-end space-x-4 pt-4">
                             <button type="button" onClick={() => { setEditingSeance(null); setEditingSeanceForm(null) }} className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">Annuler</button>
                             <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700">Mettre à jour</button>
@@ -471,27 +606,60 @@ export default function SeancesPage() {
                     <h2 className="text-2xl font-semibold text-gray-700 mb-4">Ajouter une séance</h2>
                     <form onSubmit={handleAddSeance} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {/* Sélection du niveau */}
-                        <select value={selectedNiveau} onChange={e => { setSelectedNiveau(e.target.value); setNewSeance({ ...newSeance, cours_id: '', groupe_id: '', type_id: '' }) }} className="w-full p-2 border rounded bg-gray-50">
+                        <select value={selectedNiveau} onChange={e => { setSelectedNiveau(e.target.value); setNewSeance({ ...newSeance, niveau: e.target.value, cours_id: '', groupe_id: '', type_id: '', section_id: '' }) }} className="w-full p-2 border rounded bg-gray-50">
                             <option value="">Sélectionner un niveau</option>
                             {NIVEAUX.map(niv => (
                                 <option key={niv} value={niv}>{niv}</option>
                             ))}
+                        </select>
+                        {/* Sélection de la filière */}
+                        <select
+                            required
+                            value={newSeance.filiere_id || ''}
+                            onChange={e => setNewSeance({ ...newSeance, filiere_id: e.target.value })}
+                            className="w-full p-2 border rounded bg-gray-50"
+                        >
+                            <option value="">Sélectionner une filière</option>
+                            {filieres.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
                         </select>
                         {/* Liste des cours filtrée par niveau */}
                         <select required value={newSeance.cours_id} onChange={e => setNewSeance({ ...newSeance, cours_id: e.target.value })} className="w-full p-2 border rounded bg-gray-50" disabled={!selectedNiveau}>
                             <option value="">Sélectionner un cours</option>
                             {cours.filter(c => c.niveau === selectedNiveau).map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
                         </select>
-                        {/* Liste des types */}
-                        <select required value={newSeance.type_id} onChange={e => setNewSeance({ ...newSeance, type_id: e.target.value })} className="w-full p-2 border rounded bg-gray-50">
+                        {/* Sélection du type */}
+                        <select
+                            required
+                            value={newSeance.type_id}
+                            onChange={e => setNewSeance({ ...newSeance, type_id: e.target.value })}
+                            className="w-full p-2 border rounded bg-gray-50"
+                        >
                             <option value="">Sélectionner un type</option>
                             {types.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}
                         </select>
-                        {/* Liste des groupes */}
-                        <select required value={newSeance.groupe_id} onChange={e => setNewSeance({ ...newSeance, groupe_id: e.target.value })} className="w-full p-2 border rounded bg-gray-50">
-                            <option value="">Sélectionner un groupe</option>
-                            {groupes.map(g => <option key={g.id} value={g.id}>{g.nom}</option>)}
+                        {/* Sélection de la section (toujours affichée) */}
+                        <select
+                            required
+                            value={newSeance.section_id || ''}
+                            onChange={e => setNewSeance({ ...newSeance, section_id: e.target.value })}
+                            className="w-full p-2 border rounded bg-gray-50"
+                            disabled={!newSeance.filiere_id}
+                        >
+                            <option value="">Sélectionner une section</option>
+                            {sections.map(s => <option key={s.id} value={s.id}>{s.nom}</option>)}
                         </select>
+                        {/* Sélection du groupe (désactivé ou masqué si CM) */}
+                        {types.find(t => t.id === newSeance.type_id)?.nom?.toLowerCase().includes('cm') ? null : (
+                            <select
+                                required
+                                value={newSeance.groupe_id}
+                                onChange={e => setNewSeance({ ...newSeance, groupe_id: e.target.value })}
+                                className="w-full p-2 border rounded bg-gray-50"
+                            >
+                                <option value="">Sélectionner un groupe</option>
+                                {groupes.map(g => <option key={g.id} value={g.id}>{g.nom}</option>)}
+                            </select>
+                        )}
                         {/* Les autres champs (cours, enseignant, durée) */}
                         <select value={newSeance.enseignant_id} onChange={e => setNewSeance({ ...newSeance, enseignant_id: e.target.value })} className="w-full p-2 border rounded bg-gray-50">
                             <option value="">Sélectionner un enseignant</option>
@@ -510,9 +678,12 @@ export default function SeancesPage() {
                         <table className="min-w-full leading-normal">
                             <thead>
                                 <tr>
+                                    <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Filière</th>
+                                    <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Niveau</th>
                                     <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Cours</th>
                                     <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Type</th>
                                     <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Groupe</th>
+                                    <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Section</th>
                                     <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Enseignant</th>
                                     <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Durée</th>
                                     <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
@@ -521,9 +692,12 @@ export default function SeancesPage() {
                             <tbody>
                                 {seances.map(s => (
                                     <tr key={s.id} className="hover:bg-gray-50">
+                                        <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.filieres?.nom ?? (s.filiere_id ? <span className="text-gray-400">N/A</span> : '')}</td>
+                                        <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.niveau ?? <span className="text-gray-400">N/A</span>}</td>
                                         <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.cours?.nom ?? <span className="text-gray-400">N/A</span>}</td>
                                         <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.types_seances?.nom ?? <span className="text-gray-400">N/A</span>}</td>
                                         <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.groupes?.nom ?? <span className="text-gray-400">N/A</span>}</td>
+                                        <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.sections?.nom ?? (s.section_id ? <span className="text-gray-400">N/A</span> : '')}</td>
                                         <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.enseignants?.nom || <span className="text-gray-400">N/A</span>}</td>
                                         <td className="px-5 py-4 border-b border-gray-200 text-sm">{s.duree_minutes} min</td>
                                         <td className="px-5 py-4 border-b border-gray-200 text-sm text-center">

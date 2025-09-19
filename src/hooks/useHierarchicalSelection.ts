@@ -32,7 +32,7 @@ export function useHierarchicalSelection() {
         loadFilieres()
     }, [])
 
-    // Load promotions when filiere changes
+    // Load promotions (niveaux) when filiere changes, en se basant sur les séances existantes
     useEffect(() => {
         if (!selectedFiliere) {
             setPromotions([])
@@ -40,39 +40,25 @@ export function useHierarchicalSelection() {
         }
         async function loadPromotions() {
             setLoading(true)
-            
-            const { data: sectionsInFiliere, error: sectionsError } = await supabase
-                .from('sections')
-                .select('id')
-                .eq('filiere_id', selectedFiliere)
-
-            if (sectionsError || !sectionsInFiliere || sectionsInFiliere.length === 0) {
-                setPromotions([])
-                setLoading(false)
-                return
-            }
-
-            const sectionIds = sectionsInFiliere.map(s => s.id)
-            
+            // On récupère les niveaux distincts des séances pour la filière sélectionnée
             const { data, error } = await supabase
-                .from('groupes')
+                .from('seances')
                 .select('niveau')
-                .in('section_id', sectionIds)
+                .eq('filiere_id', selectedFiliere)
                 .not('niveau', 'is', null)
 
-            if (error) {
+            if (error || !data) {
                 setPromotions([])
             } else {
-                const promotionsUniques = [...new Set(data.map(g => g.niveau).filter(Boolean) as string[])]
+                const promotionsUniques = [...new Set(data.map(s => s.niveau).filter(Boolean) as string[])]
                 setPromotions(promotionsUniques.sort())
             }
             setLoading(false)
         }
-
         loadPromotions()
     }, [selectedFiliere])
 
-    // Load sections when promotion changes
+    // Load sections when promotion changes, en se basant sur les séances existantes
     useEffect(() => {
         if (!selectedFiliere || !selectedPromotion) {
             setSections([])
@@ -80,51 +66,35 @@ export function useHierarchicalSelection() {
         }
         async function loadSections() {
             setLoading(true)
-
-            const { data: sectionsInFiliere, error: sectionsError } = await supabase
-                .from('sections')
-                .select('id')
-                .eq('filiere_id', selectedFiliere)
-
-            if (sectionsError || !sectionsInFiliere || sectionsInFiliere.length === 0) {
-                setSections([]);
-                setLoading(false);
-                return;
-            }
-
-            const sectionIdsInFiliere = sectionsInFiliere.map(s => s.id)
-
-            const { data: groupesWithNiveau, error: groupesError } = await supabase
-                .from('groupes')
+            // On récupère les section_id distincts des séances pour la filière et le niveau sélectionnés
+            const { data, error } = await supabase
+                .from('seances')
                 .select('section_id')
-                .in('section_id', sectionIdsInFiliere)
+                .eq('filiere_id', selectedFiliere)
                 .eq('niveau', selectedPromotion)
+                .not('section_id', 'is', null)
 
-            if (groupesError || !groupesWithNiveau || groupesWithNiveau.length === 0) {
-                setSections([]);
-                setLoading(false);
-                return;
-            }
-            
-            const relevantSectionIds = [...new Set(groupesWithNiveau.map(g => g.section_id).filter(Boolean))]
-
-            if(relevantSectionIds.length > 0) {
-                const { data: finalSections, error: finalSectionsError } = await supabase
-                    .from('sections')
-                    .select('id, nom')
-                    .in('id', relevantSectionIds)
-                    .order('nom')
-
-                if (finalSectionsError) {
-                     setSections([])
-                }
-                else {
-                    setSections(finalSections || [])
-                }
-            } else {
+            if (error || !data || data.length === 0) {
                 setSections([])
+                setLoading(false)
+                return
             }
-
+            const sectionIds = [...new Set(data.map(s => s.section_id).filter(Boolean))]
+            if (sectionIds.length === 0) {
+                setSections([])
+                setLoading(false)
+                return
+            }
+            const { data: finalSections, error: finalSectionsError } = await supabase
+                .from('sections')
+                .select('id, nom')
+                .in('id', sectionIds)
+                .order('nom')
+            if (finalSectionsError) {
+                setSections([])
+            } else {
+                setSections(finalSections || [])
+            }
             setLoading(false)
         }
         loadSections()
