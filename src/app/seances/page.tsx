@@ -179,15 +179,23 @@ export default function SeancesPage() {
         setLoading(true);
         setError(null);
         setSuccess(null);
+
         try {
             const coursMap = new Map(cours.map(c => [c.nom.toLowerCase(), c.id]));
             const typesMap = new Map(types.map(t => [t.nom.toLowerCase(), t.id]));
             const groupesMap = new Map(groupes.map(g => [g.nom.toLowerCase(), g.id]));
             const enseignantsMap = new Map(enseignants.map(en => [en.nom.toLowerCase(), en.id]));
             const filieresMap = new Map(filieres.map(f => [f.nom.toLowerCase(), f.id]));
-            const sectionsMap = new Map(sections.map(s => [s.nom.toLowerCase(), s.id]));
 
-            // Debug: afficher les données disponibles
+            let allSections = sections;
+            if (!sections || sections.length < 1) {
+                const { data: allSectionsData, error: allSectionsError } = await supabase.from('sections').select('*');
+                if (!allSectionsError && allSectionsData) {
+                    allSections = allSectionsData;
+                }
+            }
+            const sectionsMap = new Map((allSections || []).map(s => [s.nom.toLowerCase(), s.id]));
+
             console.log('Cours disponibles:', Array.from(coursMap.keys()));
             console.log('Types disponibles:', Array.from(typesMap.keys()));
             console.log('Groupes disponibles:', Array.from(groupesMap.keys()));
