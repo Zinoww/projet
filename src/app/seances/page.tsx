@@ -119,6 +119,7 @@ export default function SeancesPage() {
         }
     }, [])
 
+
     // Charger dynamiquement les sections selon la filière sélectionnée (création)
     useEffect(() => {
         const fetchSections = async () => {
@@ -131,7 +132,6 @@ export default function SeancesPage() {
                 .select('*')
                 .eq('filiere_id', newSeance.filiere_id)
                 .order('nom', { ascending: true });
-            console.log('[DEBUG] fetchSections (création) - filiere_id:', newSeance.filiere_id, 'data:', data, 'error:', error);
             if (!error) {
                 setSections(data || []);
             } else {
@@ -140,6 +140,29 @@ export default function SeancesPage() {
         };
         fetchSections();
     }, [newSeance.filiere_id]);
+
+    // Charger dynamiquement les groupes selon la section sélectionnée (création)
+    const [filteredGroupes, setFilteredGroupes] = useState<Groupe[]>([]);
+    useEffect(() => {
+        const fetchGroupes = async () => {
+            if (!newSeance.section_id) {
+                setFilteredGroupes([]);
+                return;
+            }
+            // On suppose que la table groupes a une colonne section_id
+            const { data, error } = await supabase
+                .from('groupes')
+                .select('*')
+                .eq('section_id', newSeance.section_id)
+                .order('nom', { ascending: true });
+            if (!error) {
+                setFilteredGroupes(data || []);
+            } else {
+                setFilteredGroupes([]);
+            }
+        };
+        fetchGroupes();
+    }, [newSeance.section_id]);
 
     // Charger dynamiquement les sections selon la filière sélectionnée (édition)
     const [editingSections, setEditingSections] = useState<Section[]>([]);
@@ -666,9 +689,10 @@ export default function SeancesPage() {
                                 value={newSeance.groupe_id}
                                 onChange={e => setNewSeance({ ...newSeance, groupe_id: e.target.value })}
                                 className="w-full p-2 border rounded bg-gray-50"
+                                disabled={!newSeance.section_id}
                             >
                                 <option value="">Sélectionner un groupe</option>
-                                {groupes.map(g => <option key={g.id} value={g.id}>{g.nom}</option>)}
+                                {filteredGroupes.map(g => <option key={g.id} value={g.id}>{g.nom}</option>)}
                             </select>
                         )}
                         {/* Les autres champs (cours, enseignant, durée) */}
